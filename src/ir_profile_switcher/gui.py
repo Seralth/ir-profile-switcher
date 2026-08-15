@@ -309,7 +309,7 @@ class MainWindow(QMainWindow):
             "Disable input-remapper's service",
             "Stop and disable input-remapper's background service?\n\n"
             "It'll go back to prompting for a password on every launch, "
-            "the same as before this app set it up. You can re-enable it "
+            "as it did before this app enabled it. You can re-enable it "
             "anytime with the Fix button.",
         )
         if confirm != QMessageBox.StandardButton.Yes:
