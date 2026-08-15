@@ -271,6 +271,7 @@ class MainWindow(QMainWindow):
         }[ir_state]
         self.ir_status_label.setText(ir_text)
         self.ir_fix_button.setEnabled(ir_state == "installed_not_running")
+        self.ir_pick_button.setVisible(ir_state == "binary_found_no_service")
 
         enabled = watcher_control.is_enabled()
         active = watcher_control.is_active()
