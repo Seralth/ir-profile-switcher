@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -15,7 +17,60 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import ir_client, mappings, preflight, watcher_control, window_picker
+from . import config, ir_client, mappings, preflight, watcher_control, window_picker
+
+
+class ServicePickerDialog(QDialog):
+    """Search-and-pick fallback for when input-remapper's service isn't
+    found under the expected name (e.g. renamed in a newer version).
+    Lets the user search all known systemd services and point this app at
+    the right one instead of just failing.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Pick input-remapper's service")
+        self.resize(480, 420)
+        self.chosen_name: str | None = None
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Search installed systemd services:"))
+
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Type to filter...")
+        layout.addWidget(self.search_box)
+
+        self.list_widget = QListWidget()
+        self._all_names = preflight.list_all_service_units()
+        self.list_widget.addItems(self._all_names)
+        layout.addWidget(self.list_widget)
+
+        self.search_box.textChanged.connect(self._filter)
+        self.list_widget.itemDoubleClicked.connect(self._on_double_click)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _filter(self, text: str):
+        text = text.lower()
+        self.list_widget.clear()
+        self.list_widget.addItems([n for n in self._all_names if text in n.lower()])
+
+    def _on_double_click(self, item):
+        self.chosen_name = item.text()
+        self.accept()
+
+    def _on_accept(self):
+        item = self.list_widget.currentItem()
+        if item is None:
+            QMessageBox.warning(self, "No selection", "Pick a service from the list.")
+            return
+        self.chosen_name = item.text()
+        self.accept()
 
 
 class AddMappingDialog(QDialog):
@@ -176,9 +231,12 @@ class MainWindow(QMainWindow):
 
         ir_row = QHBoxLayout()
         self.ir_status_label = QLabel()
+        self.ir_pick_button = QPushButton("Pick service...")
         self.ir_fix_button = QPushButton("Fix (enable + start)")
+        self.ir_pick_button.clicked.connect(self._pick_input_remapper_service)
         self.ir_fix_button.clicked.connect(self._fix_input_remapper)
         ir_row.addWidget(self.ir_status_label, stretch=1)
+        ir_row.addWidget(self.ir_pick_button)
         ir_row.addWidget(self.ir_fix_button)
         layout.addLayout(ir_row)
 
@@ -198,11 +256,16 @@ class MainWindow(QMainWindow):
 
     def _refresh_status(self):
         ir_state = preflight.status()
+        service_name = config.get_input_remapper_service()
         ir_text = {
-            "ok": "input-remapper: installed, running as a service",
+            "ok": f"input-remapper: installed, running as a service ({service_name})",
             "installed_not_running": (
-                "input-remapper: installed, but NOT running as a service "
+                f"input-remapper: installed, but '{service_name}' is NOT running "
                 "(will prompt for a password on every switch until fixed)"
+            ),
+            "binary_found_no_service": (
+                f"input-remapper: binary found, but no service named "
+                f"'{service_name}' -- may have been renamed, use 'Pick service...'"
             ),
             "not_installed": "input-remapper: NOT installed",
         }[ir_state]
@@ -220,6 +283,12 @@ class MainWindow(QMainWindow):
         self.watcher_status_label.setText(watcher_text)
         self.watcher_start_button.setEnabled(not (enabled and active))
         self.watcher_stop_button.setEnabled(enabled or active)
+
+    def _pick_input_remapper_service(self):
+        dialog = ServicePickerDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.chosen_name:
+            config.set_input_remapper_service(dialog.chosen_name)
+            self._refresh_status()
 
     def _fix_input_remapper(self):
         ok, message = preflight.ensure_service_running()
