@@ -307,10 +307,10 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(
             self,
             "Disable input-remapper's service",
-            "This disables and stops input-remapper's systemd service, "
-            "returning it to its default (pre-install) state -- it'll fall "
-            "back to prompting for a password on each launch, same as "
-            "before this app touched it.\n\nContinue?",
+            "Stop and disable input-remapper's background service?\n\n"
+            "It'll go back to prompting for a password on every launch, "
+            "the same as before this app set it up. You can re-enable it "
+            "anytime with the Fix button.",
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
