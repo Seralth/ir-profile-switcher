@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Input Remapper Profile Switcher
-Icon=input-remapper
+Icon=/home/seralth/Projects/ir-profile-switcher/data/ir-profile-switcher.svg
 Exec=python3 /home/seralth/Projects/ir-profile-switcher/src/main.py
 Terminal=false
 Categories=Settings;
