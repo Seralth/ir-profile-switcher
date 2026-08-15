@@ -215,9 +215,10 @@
   </g>
   <text
      id="ps-badge-text"
-     x="110"
-     y="52"
+     x="113.7"
+     y="22"
      text-anchor="middle"
-     transform="rotate(-18, 110, 40)"
-     style="font-family:sans-serif;font-weight:bold;font-size:48px;fill:#e0202f;fill-opacity:1;stroke:#000000;stroke-width:6;stroke-linejoin:round;stroke-linecap:round;stroke-opacity:1;paint-order:stroke fill">PS</text>
+     dominant-baseline="central"
+     transform="rotate(-14, 113.7, 22)"
+     style="font-family:sans-serif;font-weight:bold;font-size:50px;fill:#e0202f;fill-opacity:1;stroke:#1a1a2e;stroke-width:4;stroke-linejoin:round;stroke-opacity:1;paint-order:stroke fill">PS</text>
 </svg>
