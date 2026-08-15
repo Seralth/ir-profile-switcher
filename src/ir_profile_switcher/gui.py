@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -18,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import config, ir_client, mappings, preflight, watcher_control, window_picker
+
+ICON_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "ir-profile-switcher.svg"
 
 
 class ServicePickerDialog(QDialog):
@@ -199,6 +204,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Input Remapper Profile Switcher")
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.resize(760, 440)
 
         central = QWidget()
