@@ -3,6 +3,7 @@ from pathlib import Path
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -259,6 +260,11 @@ class MainWindow(QMainWindow):
         watcher_row.addWidget(self.watcher_start_button)
         watcher_row.addWidget(self.watcher_stop_button)
         layout.addLayout(watcher_row)
+
+        self.notify_checkbox = QCheckBox("Show a notification when the active profile switches")
+        self.notify_checkbox.setChecked(config.get_notifications_enabled())
+        self.notify_checkbox.toggled.connect(config.set_notifications_enabled)
+        layout.addWidget(self.notify_checkbox)
 
         self._refresh_table()
         self._refresh_status()

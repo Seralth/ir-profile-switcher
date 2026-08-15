@@ -16,7 +16,7 @@ import logging
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtDBus import QDBusConnection
 
-from . import ir_client, mappings
+from . import ir_client, mappings, notify
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class WatcherService(QObject):
         if targets_key == self._active_targets_key:
             return
 
+        switched = []
         for target in targets:
             device = target["device"]
             preset = target["preset"]
@@ -54,11 +55,16 @@ class WatcherService(QObject):
                 logger.info(
                     "%s -> device=%r preset=%r ok=%s", window_class, device, preset, ok
                 )
+                if ok:
+                    switched.append(target)
             except RuntimeError:
                 logger.exception(
                     "Failed switching device=%r to preset=%r", device, preset
                 )
         self._active_targets_key = targets_key
+
+        if switched:
+            notify.notify_switch(window_class, switched)
 
 
 def register() -> WatcherService:
