@@ -32,3 +32,13 @@ def set_input_remapper_service(name: str) -> None:
     data = _load()
     data["input_remapper_service"] = name
     _save(data)
+
+
+def get_notifications_enabled() -> bool:
+    return _load().get("notifications_enabled", True)
+
+
+def set_notifications_enabled(enabled: bool) -> None:
+    data = _load()
+    data["notifications_enabled"] = enabled
+    _save(data)
