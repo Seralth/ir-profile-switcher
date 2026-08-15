@@ -1,5 +1,3 @@
-from PySide6.QtCore import Qt
-from PySide6.QtDBus import QDBusConnection
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -17,9 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import ir_client, mappings, window_picker
-
-WATCHER_SERVICE = "com.seralth.IRProfileSwitcher"
+from . import ir_client, mappings, preflight, watcher_control, window_picker
 
 
 class AddMappingDialog(QDialog):
@@ -178,18 +174,70 @@ class MainWindow(QMainWindow):
         button_row.addStretch()
         layout.addLayout(button_row)
 
-        self.status_label = QLabel()
-        layout.addWidget(self.status_label)
+        ir_row = QHBoxLayout()
+        self.ir_status_label = QLabel()
+        self.ir_fix_button = QPushButton("Fix (enable + start)")
+        self.ir_fix_button.clicked.connect(self._fix_input_remapper)
+        ir_row.addWidget(self.ir_status_label, stretch=1)
+        ir_row.addWidget(self.ir_fix_button)
+        layout.addLayout(ir_row)
+
+        watcher_row = QHBoxLayout()
+        self.watcher_status_label = QLabel()
+        self.watcher_start_button = QPushButton("Enable + start")
+        self.watcher_stop_button = QPushButton("Disable + stop")
+        self.watcher_start_button.clicked.connect(self._start_watcher)
+        self.watcher_stop_button.clicked.connect(self._stop_watcher)
+        watcher_row.addWidget(self.watcher_status_label, stretch=1)
+        watcher_row.addWidget(self.watcher_start_button)
+        watcher_row.addWidget(self.watcher_stop_button)
+        layout.addLayout(watcher_row)
 
         self._refresh_table()
         self._refresh_status()
 
     def _refresh_status(self):
-        bus = QDBusConnection.sessionBus()
-        running = bus.interface().isServiceRegistered(WATCHER_SERVICE).value()
-        self.status_label.setText(
-            "Watcher status: running" if running else "Watcher status: NOT running"
-        )
+        ir_state = preflight.status()
+        ir_text = {
+            "ok": "input-remapper: installed, running as a service",
+            "installed_not_running": (
+                "input-remapper: installed, but NOT running as a service "
+                "(will prompt for a password on every switch until fixed)"
+            ),
+            "not_installed": "input-remapper: NOT installed",
+        }[ir_state]
+        self.ir_status_label.setText(ir_text)
+        self.ir_fix_button.setEnabled(ir_state == "installed_not_running")
+
+        enabled = watcher_control.is_enabled()
+        active = watcher_control.is_active()
+        if enabled and active:
+            watcher_text = "Watcher service: enabled, running"
+        elif enabled and not active:
+            watcher_text = "Watcher service: enabled, but not currently running"
+        else:
+            watcher_text = "Watcher service: not enabled (won't start at login)"
+        self.watcher_status_label.setText(watcher_text)
+        self.watcher_start_button.setEnabled(not (enabled and active))
+        self.watcher_stop_button.setEnabled(enabled or active)
+
+    def _fix_input_remapper(self):
+        ok, message = preflight.ensure_service_running()
+        if not ok:
+            QMessageBox.warning(self, "input-remapper", message)
+        self._refresh_status()
+
+    def _start_watcher(self):
+        ok, message = watcher_control.enable_and_start()
+        if not ok:
+            QMessageBox.warning(self, "Watcher", message)
+        self._refresh_status()
+
+    def _stop_watcher(self):
+        ok, message = watcher_control.disable_and_stop()
+        if not ok:
+            QMessageBox.warning(self, "Watcher", message)
+        self._refresh_status()
 
     def _refresh_table(self):
         self._mappings = mappings.load()
