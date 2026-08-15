@@ -1,0 +1,13 @@
+[Unit]
+Description=Input Remapper Profile Switcher (window-aware preset watcher)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/Projects/ir-profile-switcher/src/main.py --watcher
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
