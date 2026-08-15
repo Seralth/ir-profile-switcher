@@ -30,31 +30,50 @@ own. This adds that on top, without depending on X11-only tools (like
 ## Requirements
 
 - KDE Plasma (KWin) on Wayland or X11
-- `input-remapper` running as a service (`systemctl --user enable --now
-  input-remapper.service` or the system-level equivalent)
+- `input-remapper` installed (its own systemd service is checked and
+  fixed automatically by this app -- see below, no manual `systemctl`
+  needed)
 - Python 3, PySide6 (`pacman -S pyside6` on Arch/CachyOS)
+
+## Install
+
+Symlink the app into the places KDE and systemd look for it:
+
+```sh
+# Show up in the KDE application menu
+mkdir -p ~/.local/share/applications
+ln -s "$(pwd)/ir-profile-switcher.desktop" ~/.local/share/applications/
+kbuildsycoca6 --noincremental
+
+# Background watcher, starts at login
+mkdir -p ~/.config/systemd/user
+ln -s "$(pwd)/systemd/ir-profile-switcher.service" ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ir-profile-switcher.service
+```
+
+(The watcher's enable button in the GUI recreates its own symlink if it
+ever goes missing, so this only needs doing once by hand.)
 
 ## Usage
 
-Run the GUI to manage mappings:
+Launch "Input Remapper Profile Switcher" from the KDE app menu, or:
 
 ```sh
 python3 src/main.py
 ```
 
-Run the background watcher (what actually does the switching):
+The GUI's status row shows whether input-remapper is installed and
+running as a service, and whether this app's own watcher is enabled --
+with buttons to fix, enable/disable, or (if input-remapper's service unit
+is ever renamed) search and repoint at the right one. No terminal
+commands needed for day-to-day use, install, or uninstall.
+
+The background watcher (what actually does the switching) also runs
+standalone if needed:
 
 ```sh
 python3 src/main.py --watcher
-```
-
-Or install it as a systemd user service so it starts at login:
-
-```sh
-mkdir -p ~/.config/systemd/user
-ln -s "$(pwd)/systemd/ir-profile-switcher.service" ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now ir-profile-switcher.service
 ```
 
 ## Status
