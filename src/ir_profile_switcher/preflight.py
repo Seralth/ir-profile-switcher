@@ -40,6 +40,14 @@ def is_service_active(service_name: str | None = None) -> bool:
     return result.stdout.strip() == "active"
 
 
+def is_service_enabled(service_name: str | None = None) -> bool:
+    service_name = service_name or config.get_input_remapper_service()
+    result = subprocess.run(
+        ["systemctl", "is-enabled", service_name], capture_output=True, text=True
+    )
+    return result.stdout.strip() == "enabled"
+
+
 def status() -> str:
     """One of: "not_installed", "binary_found_no_service",
     "installed_not_running", "ok".
@@ -84,6 +92,26 @@ def ensure_service_running() -> tuple[bool, str]:
     if result.returncode != 0 or not is_service_active(service_name):
         return False, f"Failed to start {service_name}: {result.stderr.strip()}"
     return True, f"{service_name} enabled and started."
+
+
+def disable_service() -> tuple[bool, str]:
+    """Disables + stops input-remapper's service, returning it to the
+    state it's in on a fresh install (not running as a service, falling
+    back to its own on-demand pkexec prompt) -- so this app can be
+    uninstalled without leaving behind a change nobody can easily revert.
+    """
+    service_name = config.get_input_remapper_service()
+    if not has_service_unit(service_name):
+        return False, f"No service named '{service_name}' to disable."
+
+    result = subprocess.run(
+        ["pkexec", "systemctl", "disable", "--now", service_name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, f"Failed to disable {service_name}: {result.stderr.strip()}"
+    return True, f"{service_name} disabled and stopped (back to default state)."
 
 
 def list_all_service_units() -> list[str]:
