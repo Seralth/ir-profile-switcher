@@ -233,11 +233,14 @@ class MainWindow(QMainWindow):
         self.ir_status_label = QLabel()
         self.ir_pick_button = QPushButton("Pick service...")
         self.ir_fix_button = QPushButton("Fix (enable + start)")
+        self.ir_disable_button = QPushButton("Disable (return to default)")
         self.ir_pick_button.clicked.connect(self._pick_input_remapper_service)
         self.ir_fix_button.clicked.connect(self._fix_input_remapper)
+        self.ir_disable_button.clicked.connect(self._disable_input_remapper)
         ir_row.addWidget(self.ir_status_label, stretch=1)
         ir_row.addWidget(self.ir_pick_button)
         ir_row.addWidget(self.ir_fix_button)
+        ir_row.addWidget(self.ir_disable_button)
         layout.addLayout(ir_row)
 
         watcher_row = QHBoxLayout()
@@ -272,6 +275,9 @@ class MainWindow(QMainWindow):
         self.ir_status_label.setText(ir_text)
         self.ir_fix_button.setEnabled(ir_state == "installed_not_running")
         self.ir_pick_button.setVisible(ir_state == "binary_found_no_service")
+        ir_enabled = preflight.is_service_enabled()
+        ir_active = preflight.is_service_active()
+        self.ir_disable_button.setEnabled(ir_enabled or ir_active)
 
         enabled = watcher_control.is_enabled()
         active = watcher_control.is_active()
@@ -293,6 +299,22 @@ class MainWindow(QMainWindow):
 
     def _fix_input_remapper(self):
         ok, message = preflight.ensure_service_running()
+        if not ok:
+            QMessageBox.warning(self, "input-remapper", message)
+        self._refresh_status()
+
+    def _disable_input_remapper(self):
+        confirm = QMessageBox.question(
+            self,
+            "Disable input-remapper's service",
+            "This disables and stops input-remapper's systemd service, "
+            "returning it to its default (pre-install) state -- it'll fall "
+            "back to prompting for a password on each launch, same as "
+            "before this app touched it.\n\nContinue?",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        ok, message = preflight.disable_service()
         if not ok:
             QMessageBox.warning(self, "input-remapper", message)
         self._refresh_status()
