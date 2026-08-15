@@ -1,65 +1,103 @@
 """Checks that input-remapper is actually installed and running as its own
-systemd service (root-owned input-remapper.service) rather than the
-on-demand pkexec path that input-remapper falls back to -- which is what
-prompts for a password every single time it's launched. If we find it
+systemd service (root-owned, name configurable -- see config.py) rather
+than the on-demand pkexec path that input-remapper falls back to, which is
+what prompts for a password every single time it's launched. If we find it
 installed but not running as the service, we fix that once here instead of
 letting every preset-switch attempt trigger its own prompt.
 
 This tool never installs input-remapper itself -- if it's missing
-entirely, that's reported, not silently acted on.
+entirely, that's reported, not silently acted on. If the binary is found
+but the configured service name isn't, that's also reported distinctly
+(not conflated with "not installed") -- the GUI's service picker lets the
+user repoint the configured name if it's been renamed.
 """
 
 import shutil
 import subprocess
 
-SERVICE_NAME = "input-remapper.service"
+from . import config
 
 
-def is_installed() -> bool:
-    if shutil.which("input-remapper-control") is None:
-        return False
+def has_binary() -> bool:
+    return shutil.which("input-remapper-control") is not None
+
+
+def has_service_unit(service_name: str | None = None) -> bool:
+    service_name = service_name or config.get_input_remapper_service()
     result = subprocess.run(
-        ["systemctl", "list-unit-files", SERVICE_NAME, "--no-legend"],
+        ["systemctl", "list-unit-files", service_name, "--no-legend"],
         capture_output=True,
         text=True,
     )
     return bool(result.stdout.strip())
 
 
-def is_service_active() -> bool:
+def is_service_active(service_name: str | None = None) -> bool:
+    service_name = service_name or config.get_input_remapper_service()
     result = subprocess.run(
-        ["systemctl", "is-active", SERVICE_NAME], capture_output=True, text=True
+        ["systemctl", "is-active", service_name], capture_output=True, text=True
     )
     return result.stdout.strip() == "active"
 
 
 def status() -> str:
-    if not is_installed():
-        return "not_installed"
+    """One of: "not_installed", "binary_found_no_service",
+    "installed_not_running", "ok".
+    """
+    if not has_service_unit():
+        return "binary_found_no_service" if has_binary() else "not_installed"
     if not is_service_active():
         return "installed_not_running"
     return "ok"
 
 
 def ensure_service_running() -> tuple[bool, str]:
-    """Attempts to enable+start input-remapper.service via pkexec if it's
+    """Attempts to enable+start input-remapper's service via pkexec if it's
     installed but not active. Returns (ok, message). Only ever prompts for
     a password here -- once, on the actual fix -- not on every preset
-    switch.
+    switch. Never guesses at a service name; if it can't find the
+    configured one, it reports that rather than acting on a guess.
     """
-    if not is_installed():
+    service_name = config.get_input_remapper_service()
+    state = status()
+
+    if state == "not_installed":
         return False, (
             "input-remapper is not installed (missing input-remapper-control "
-            "binary or its systemd service unit)."
+            "binary and its systemd service unit)."
         )
-    if is_service_active():
-        return True, "input-remapper.service is already running."
+    if state == "binary_found_no_service":
+        return False, (
+            f"Found the input-remapper-control binary, but no systemd service "
+            f"named '{service_name}'. It may have been renamed -- use "
+            "'Pick service...' to search your installed services and point "
+            "this at the right one."
+        )
+    if state == "ok":
+        return True, f"{service_name} is already running."
 
     result = subprocess.run(
-        ["pkexec", "systemctl", "enable", "--now", SERVICE_NAME],
+        ["pkexec", "systemctl", "enable", "--now", service_name],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0 or not is_service_active():
-        return False, f"Failed to start {SERVICE_NAME}: {result.stderr.strip()}"
-    return True, f"{SERVICE_NAME} enabled and started."
+    if result.returncode != 0 or not is_service_active(service_name):
+        return False, f"Failed to start {service_name}: {result.stderr.strip()}"
+    return True, f"{service_name} enabled and started."
+
+
+def list_all_service_units() -> list[str]:
+    """All service unit names known to systemd (system-level), for the
+    GUI's search-and-pick fallback.
+    """
+    result = subprocess.run(
+        ["systemctl", "list-unit-files", "--type=service", "--all", "--no-legend"],
+        capture_output=True,
+        text=True,
+    )
+    names = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if parts:
+            names.append(parts[0])
+    return sorted(names)
