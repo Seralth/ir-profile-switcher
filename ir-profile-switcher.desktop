@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Input Remapper Profile Switcher
+Icon=input-remapper
+Exec=python3 /home/seralth/Projects/ir-profile-switcher/src/main.py
+Terminal=false
+Categories=Settings;
+Comment=Manage which input-remapper preset each program uses
