@@ -2,9 +2,9 @@
 picker.
 
 Event-driven, not polled: a KWin script reports the windows already open
-when the watch starts, then stays loaded and reports each newly launched
-window as it appears via KWin's own windowAdded signal, for as long as
-the picker dialog is open.
+when the watch starts, then stays loaded and reports each window
+launched or closed after that via KWin's own windowAdded/windowRemoved
+signals, for as long as the picker dialog is open.
 """
 
 from pathlib import Path
@@ -27,10 +27,11 @@ _alive_receivers: list = []
 
 
 class _Receiver(QObject):
-    def __init__(self, on_initial, on_added):
+    def __init__(self, on_initial, on_added, on_removed):
         super().__init__()
         self._on_initial = on_initial
         self._on_added = on_added
+        self._on_removed = on_removed
 
     @Slot(list, list)
     def ReceiveWindowList(self, classes, captions):
@@ -40,6 +41,10 @@ class _Receiver(QObject):
     def WindowAdded(self, window_class, caption):
         self._on_added(window_class, caption)
 
+    @Slot(str)
+    def WindowRemoved(self, window_class):
+        self._on_removed(window_class)
+
 
 def _kwin_call(method: str, args: list):
     bus = QDBusConnection.sessionBus()
@@ -48,12 +53,13 @@ def _kwin_call(method: str, args: list):
     bus.call(msg)
 
 
-def watch_open_windows(on_initial, on_added, timeout_ms: int = 2000):
+def watch_open_windows(on_initial, on_added, on_removed, timeout_ms: int = 2000):
     """Start a live window watch for as long as the picker dialog is open.
 
     Calls `on_initial(pairs)` once with the windows open at watch-start
     (or an empty list if nothing responds within timeout_ms), then calls
     `on_added(window_class, caption)` for every window launched after
+    that and `on_removed(window_class)` for every window closed after
     that, until the returned stop function is called.
 
     Returns a `stop()` function -- call it when the dialog closes to
@@ -68,7 +74,7 @@ def watch_open_windows(on_initial, on_added, timeout_ms: int = 2000):
         state["initial_fired"] = True
         on_initial(pairs)
 
-    receiver = _Receiver(fire_initial, on_added)
+    receiver = _Receiver(fire_initial, on_added, on_removed)
     # Keep a reference alive at module scope so it isn't garbage collected
     # while the KWin script is still calling back.
     _alive_receivers.append(receiver)

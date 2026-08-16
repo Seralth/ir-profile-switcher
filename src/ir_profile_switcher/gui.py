@@ -86,7 +86,10 @@ class AddMappingDialog(QDialog):
         self.resize(560, 420)
         self._devices = ir_client.list_devices()
         self._targets: list[dict] = []
-        self._seen_window_classes: set[str] = set()
+        # Counts, not a set: several windows (e.g. multiple browser windows)
+        # can share the same window_class, so the combo entry should only
+        # disappear once the LAST window of that class closes.
+        self._window_class_counts: dict[str, int] = {}
 
         layout = QVBoxLayout(self)
 
@@ -139,7 +142,7 @@ class AddMappingDialog(QDialog):
         layout.addWidget(buttons)
 
         self._stop_window_watch = window_picker.watch_open_windows(
-            self._populate_windows, self._add_live_window
+            self._populate_windows, self._add_live_window, self._remove_live_window
         )
         self.finished.connect(lambda _: self._stop_window_watch())
 
@@ -177,26 +180,43 @@ class AddMappingDialog(QDialog):
 
     def _populate_windows(self, pairs):
         self.window_combo.clear()
-        self._seen_window_classes.clear()
+        self._window_class_counts.clear()
         for window_class, caption in pairs:
-            if window_class in self._seen_window_classes:
-                continue
-            self._seen_window_classes.add(window_class)
+            count = self._window_class_counts.get(window_class, 0)
+            self._window_class_counts[window_class] = count + 1
+            if count > 0:
+                continue  # already have a combo entry for this class
             label = f"{window_class}   —   {caption}" if caption else window_class
             self.window_combo.addItem(label, window_class)
         if not pairs:
             self.window_combo.addItem("(no windows found, type manually)")
 
     def _add_live_window(self, window_class: str, caption: str):
-        if window_class in self._seen_window_classes:
-            return
-        self._seen_window_classes.add(window_class)
+        count = self._window_class_counts.get(window_class, 0)
+        self._window_class_counts[window_class] = count + 1
+        if count > 0:
+            return  # another window of this class is already in the list
         # Replace the "(no windows found...)" placeholder the first time a
         # real window shows up, instead of leaving it in the list.
         if self.window_combo.count() == 1 and self.window_combo.itemData(0) is None:
             self.window_combo.clear()
         label = f"{window_class}   —   {caption}" if caption else window_class
         self.window_combo.addItem(label, window_class)
+
+    def _remove_live_window(self, window_class: str):
+        count = self._window_class_counts.get(window_class, 0)
+        if count <= 0:
+            return
+        count -= 1
+        if count > 0:
+            self._window_class_counts[window_class] = count
+            return  # other windows of this class are still open
+        del self._window_class_counts[window_class]
+        index = self.window_combo.findData(window_class)
+        if index != -1:
+            self.window_combo.removeItem(index)
+        if self.window_combo.count() == 0:
+            self.window_combo.addItem("(no windows found, type manually)")
 
     def _on_accept(self):
         window_class = self.window_combo.currentData()
