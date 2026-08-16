@@ -15,7 +15,7 @@ user repoint the configured name if it's been renamed.
 import shutil
 import subprocess
 
-from . import config
+from . import config, systemctl_utils
 
 
 def has_binary() -> bool:
@@ -34,18 +34,12 @@ def has_service_unit(service_name: str | None = None) -> bool:
 
 def is_service_active(service_name: str | None = None) -> bool:
     service_name = service_name or config.get_input_remapper_service()
-    result = subprocess.run(
-        ["systemctl", "is-active", service_name], capture_output=True, text=True
-    )
-    return result.stdout.strip() == "active"
+    return systemctl_utils.is_unit_state("active", service_name)
 
 
 def is_service_enabled(service_name: str | None = None) -> bool:
     service_name = service_name or config.get_input_remapper_service()
-    result = subprocess.run(
-        ["systemctl", "is-enabled", service_name], capture_output=True, text=True
-    )
-    return result.stdout.strip() == "enabled"
+    return systemctl_utils.is_unit_state("enabled", service_name)
 
 
 def status() -> str:

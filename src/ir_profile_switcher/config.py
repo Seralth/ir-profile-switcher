@@ -4,24 +4,20 @@ manually repointed via the GUI's service picker if it's ever renamed or
 installed differently than expected.
 """
 
-import json
 from pathlib import Path
+
+from . import json_store
 
 CONFIG_PATH = Path.home() / ".config" / "ir-profile-switcher" / "config.json"
 DEFAULT_INPUT_REMAPPER_SERVICE = "input-remapper.service"
 
 
 def _load() -> dict:
-    if not CONFIG_PATH.is_file():
-        return {}
-    with CONFIG_PATH.open("r") as f:
-        return json.load(f)
+    return json_store.read_json(CONFIG_PATH, {})
 
 
 def _save(data: dict) -> None:
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with CONFIG_PATH.open("w") as f:
-        json.dump(data, f, indent=2)
+    json_store.write_json(CONFIG_PATH, data)
 
 
 def get_input_remapper_service() -> str:

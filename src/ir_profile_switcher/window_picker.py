@@ -7,14 +7,12 @@ launched or closed after that via KWin's own windowAdded/windowRemoved
 signals, for as long as the picker dialog is open.
 """
 
-from pathlib import Path
-
 from PySide6.QtCore import QObject, QTimer, Slot
-from PySide6.QtDBus import QDBusConnection, QDBusMessage
+from PySide6.QtDBus import QDBusConnection
 
-LIST_SCRIPT_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "kwin-script" / "list-windows.js"
-)
+from . import dbus_utils, paths
+
+LIST_SCRIPT_PATH = paths.REPO_ROOT / "kwin-script" / "list-windows.js"
 
 PICKER_SERVICE = "com.seralth.IRProfileSwitcher.Picker"
 PICKER_PATH = "/Picker"
@@ -48,9 +46,7 @@ class _Receiver(QObject):
 
 def _kwin_call(method: str, args: list):
     bus = QDBusConnection.sessionBus()
-    msg = QDBusMessage.createMethodCall(KWIN_SERVICE, KWIN_PATH, KWIN_INTERFACE, method)
-    msg.setArguments(args)
-    bus.call(msg)
+    dbus_utils.call(bus, KWIN_SERVICE, KWIN_PATH, KWIN_INTERFACE, method, args)
 
 
 def watch_open_windows(on_initial, on_added, on_removed, timeout_ms: int = 2000):

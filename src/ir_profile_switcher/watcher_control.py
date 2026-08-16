@@ -6,14 +6,14 @@ so using this tool never requires knowing or typing systemctl by hand.
 import subprocess
 from pathlib import Path
 
+from . import paths, systemctl_utils
+
 SERVICE_NAME = "ir-profile-switcher.service"
 
 # The unit file lives in this repo (not a package), so it's never on
 # systemd's default search path -- unlike a real installed package, there's
 # nothing to discover it unless we put a symlink there ourselves.
-SOURCE_UNIT_FILE = (
-    Path(__file__).resolve().parent.parent.parent / "systemd" / SERVICE_NAME
-)
+SOURCE_UNIT_FILE = paths.REPO_ROOT / "systemd" / SERVICE_NAME
 INSTALLED_UNIT_LINK = Path.home() / ".config" / "systemd" / "user" / SERVICE_NAME
 
 
@@ -34,21 +34,11 @@ def _ensure_unit_installed() -> None:
 
 
 def is_enabled() -> bool:
-    result = subprocess.run(
-        ["systemctl", "--user", "is-enabled", SERVICE_NAME],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip() == "enabled"
+    return systemctl_utils.is_unit_state("enabled", SERVICE_NAME, user=True)
 
 
 def is_active() -> bool:
-    result = subprocess.run(
-        ["systemctl", "--user", "is-active", SERVICE_NAME],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip() == "active"
+    return systemctl_utils.is_unit_state("active", SERVICE_NAME, user=True)
 
 
 def enable_and_start() -> tuple[bool, str]:

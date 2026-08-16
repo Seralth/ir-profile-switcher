@@ -11,13 +11,10 @@ every DE's notification daemon.
 import logging
 import shutil
 import subprocess
-from pathlib import Path
 
-from . import config
+from . import config, paths
 
 logger = logging.getLogger(__name__)
-
-ICON_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "ir-profile-switcher.svg"
 
 
 def notify_switch(window_class: str, targets: list[dict]) -> None:
@@ -33,7 +30,7 @@ def notify_switch(window_class: str, targets: list[dict]) -> None:
             [
                 "notify-send",
                 "--app-name=Input Remapper Profile Switcher",
-                f"--icon={ICON_PATH}",
+                f"--icon={paths.ICON_PATH}",
                 "--expire-time=4000",
                 f"Switched preset for {window_class}",
                 body,
