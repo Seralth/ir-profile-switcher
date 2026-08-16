@@ -1,4 +1,4 @@
-from pathlib import Path
+from collections import Counter
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
@@ -21,9 +21,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import config, ir_client, mappings, preflight, watcher_control, window_picker
+from . import config, ir_client, mappings, paths, preflight, watcher_control, window_picker
 
-ICON_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "ir-profile-switcher.svg"
+LABEL_SEP = "   —   "
+PLACEHOLDER_LOADING = "(loading open windows...)"
+PLACEHOLDER_NO_WINDOWS = "(no windows found, type manually)"
+
+
+def _format_label(window_class: str, caption: str) -> str:
+    return f"{window_class}{LABEL_SEP}{caption}" if caption else window_class
 
 
 class ServicePickerDialog(QDialog):
@@ -89,7 +95,7 @@ class AddMappingDialog(QDialog):
         # Counts, not a set: several windows (e.g. multiple browser windows)
         # can share the same window_class, so the combo entry should only
         # disappear once the LAST window of that class closes.
-        self._window_class_counts: dict[str, int] = {}
+        self._window_class_counts: Counter[str] = Counter()
 
         layout = QVBoxLayout(self)
 
@@ -98,7 +104,7 @@ class AddMappingDialog(QDialog):
         self.window_combo.setEditable(True)
         self.window_combo.setMinimumContentsLength(40)
         self.window_combo.view().setMinimumWidth(520)
-        self.window_combo.addItem("(loading open windows...)")
+        self.window_combo.addItem(PLACEHOLDER_LOADING)
         layout.addWidget(self.window_combo)
 
         layout.addWidget(QLabel("Devices for this program:"))
@@ -182,46 +188,52 @@ class AddMappingDialog(QDialog):
         self.window_combo.clear()
         self._window_class_counts.clear()
         for window_class, caption in pairs:
-            count = self._window_class_counts.get(window_class, 0)
-            self._window_class_counts[window_class] = count + 1
-            if count > 0:
-                continue  # already have a combo entry for this class
-            label = f"{window_class}   —   {caption}" if caption else window_class
-            self.window_combo.addItem(label, window_class)
+            self._add_live_window(window_class, caption)
         if not pairs:
-            self.window_combo.addItem("(no windows found, type manually)")
+            self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
 
     def _add_live_window(self, window_class: str, caption: str):
-        count = self._window_class_counts.get(window_class, 0)
-        self._window_class_counts[window_class] = count + 1
-        if count > 0:
+        self._window_class_counts[window_class] += 1
+        if self._window_class_counts[window_class] > 1:
             return  # another window of this class is already in the list
         # Replace the "(no windows found...)" placeholder the first time a
         # real window shows up, instead of leaving it in the list.
         if self.window_combo.count() == 1 and self.window_combo.itemData(0) is None:
             self.window_combo.clear()
-        label = f"{window_class}   —   {caption}" if caption else window_class
-        self.window_combo.addItem(label, window_class)
+        self.window_combo.addItem(_format_label(window_class, caption), window_class)
 
     def _remove_live_window(self, window_class: str):
-        count = self._window_class_counts.get(window_class, 0)
-        if count <= 0:
+        if self._window_class_counts[window_class] <= 0:
             return
-        count -= 1
-        if count > 0:
-            self._window_class_counts[window_class] = count
+        self._window_class_counts[window_class] -= 1
+        if self._window_class_counts[window_class] > 0:
             return  # other windows of this class are still open
         del self._window_class_counts[window_class]
         index = self.window_combo.findData(window_class)
-        if index != -1:
-            self.window_combo.removeItem(index)
+        if index == -1:
+            return
+        # Removing an item from an editable QComboBox can silently change
+        # currentIndex/currentData out from under the user -- e.g. jumping
+        # selection to a different entry -- if they closed the picked
+        # program while still filling in the rest of the dialog. If the
+        # entry being removed was the selected one, force currentIndex to
+        # -1 (no item selected) and restore the displayed text as free
+        # text, so _on_accept()'s currentText()-parsing fallback picks up
+        # the right window_class instead of currentData() silently
+        # returning some other item's data.
+        was_current = index == self.window_combo.currentIndex()
+        preserved_text = self.window_combo.currentText()
+        self.window_combo.removeItem(index)
         if self.window_combo.count() == 0:
-            self.window_combo.addItem("(no windows found, type manually)")
+            self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
+        if was_current:
+            self.window_combo.setCurrentIndex(-1)
+            self.window_combo.setEditText(preserved_text)
 
     def _on_accept(self):
         window_class = self.window_combo.currentData()
         if not window_class:
-            window_class = self.window_combo.currentText().split("   —   ")[0].strip()
+            window_class = self.window_combo.currentText().split(LABEL_SEP)[0].strip()
         if not window_class or window_class.startswith("("):
             QMessageBox.warning(self, "Missing program", "Enter or pick a window class.")
             return
@@ -240,7 +252,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Input Remapper Profile Switcher")
-        self.setWindowIcon(QIcon(str(ICON_PATH)))
+        self.setWindowIcon(QIcon(str(paths.ICON_PATH)))
         self.resize(760, 440)
 
         central = QWidget()
@@ -323,7 +335,10 @@ class MainWindow(QMainWindow):
         self.ir_fix_button.setEnabled(ir_state == "installed_not_running")
         self.ir_pick_button.setVisible(ir_state == "binary_found_no_service")
         ir_enabled = preflight.is_service_enabled()
-        ir_active = preflight.is_service_active()
+        # ir_state can only be "ok" when is_service_active() was True, so
+        # this avoids spawning a second identical `systemctl is-active`
+        # subprocess just to re-derive what status() already determined.
+        ir_active = ir_state == "ok"
         self.ir_disable_button.setEnabled(ir_enabled or ir_active)
 
         enabled = watcher_control.is_enabled()
@@ -384,31 +399,28 @@ class MainWindow(QMainWindow):
             summary = ", ".join(f"{t['device']}: {t['preset']}" for t in entry["targets"])
             self.table.setItem(row, 1, QTableWidgetItem(summary))
 
+    def _open_mapping_dialog(self, existing: dict | None = None):
+        dialog = AddMappingDialog(self, existing=existing)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        # Editing replaces by the mapping's original window_class (in case
+        # it was changed); adding replaces by the new one (upsert on a
+        # collision with an existing mapping for that program).
+        old_window_class = existing["window_class"] if existing else dialog.result_mapping["window_class"]
+        current = mappings.load()
+        current = [m for m in current if m["window_class"] != old_window_class]
+        current.append(dialog.result_mapping)
+        mappings.save(current)
+        self._refresh_table()
+
     def _add_mapping(self):
-        dialog = AddMappingDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            current = mappings.load()
-            current = [
-                m for m in current if m["window_class"] != dialog.result_mapping["window_class"]
-            ]
-            current.append(dialog.result_mapping)
-            mappings.save(current)
-            self._refresh_table()
+        self._open_mapping_dialog()
 
     def _edit_mapping(self):
         row = self.table.currentRow()
         if row < 0:
             return
-        existing = self._mappings[row]
-        dialog = AddMappingDialog(self, existing=existing)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            current = mappings.load()
-            current = [
-                m for m in current if m["window_class"] != existing["window_class"]
-            ]
-            current.append(dialog.result_mapping)
-            mappings.save(current)
-            self._refresh_table()
+        self._open_mapping_dialog(existing=self._mappings[row])
 
     def _remove_mapping(self):
         row = self.table.currentRow()
