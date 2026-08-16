@@ -9,7 +9,9 @@ about on the running system.
 
 from pathlib import Path
 
-from PySide6.QtDBus import QDBusConnection, QDBusMessage
+from PySide6.QtDBus import QDBusConnection
+
+from . import dbus_utils
 
 PRESETS_DIR = Path.home() / ".config" / "input-remapper-2" / "presets"
 
@@ -35,14 +37,7 @@ def list_presets(device: str) -> list[str]:
 
 def _system_bus_call(method: str, args: list):
     bus = QDBusConnection.systemBus()
-    if not bus.isConnected():
-        raise RuntimeError("Could not connect to the DBus system bus")
-    msg = QDBusMessage.createMethodCall(SERVICE, OBJECT_PATH, INTERFACE, method)
-    msg.setArguments(args)
-    reply = bus.call(msg)
-    if reply.type() == QDBusMessage.MessageType.ErrorMessage:
-        raise RuntimeError(f"{method} failed: {reply.errorMessage()}")
-    return reply.arguments()
+    return dbus_utils.call(bus, SERVICE, OBJECT_PATH, INTERFACE, method, args)
 
 
 def start_injecting(device: str, preset: str) -> bool:

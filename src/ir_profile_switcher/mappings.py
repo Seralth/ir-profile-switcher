@@ -12,23 +12,19 @@ Schema:
 ]
 """
 
-import json
 from pathlib import Path
+
+from . import json_store
 
 MAPPINGS_PATH = Path.home() / ".config" / "ir-profile-switcher" / "mappings.json"
 
 
 def load() -> list[dict]:
-    if not MAPPINGS_PATH.is_file():
-        return []
-    with MAPPINGS_PATH.open("r") as f:
-        return json.load(f)
+    return json_store.read_json(MAPPINGS_PATH, [])
 
 
 def save(mappings: list[dict]) -> None:
-    MAPPINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with MAPPINGS_PATH.open("w") as f:
-        json.dump(mappings, f, indent=2)
+    json_store.write_json(MAPPINGS_PATH, mappings)
 
 
 def find_targets(window_class: str, mappings: list[dict]) -> list[dict] | None:
