@@ -86,6 +86,7 @@ class AddMappingDialog(QDialog):
         self.resize(560, 420)
         self._devices = ir_client.list_devices()
         self._targets: list[dict] = []
+        self._seen_window_classes: set[str] = set()
 
         layout = QVBoxLayout(self)
 
@@ -137,7 +138,10 @@ class AddMappingDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        window_picker.list_open_windows(self._populate_windows)
+        self._stop_window_watch = window_picker.watch_open_windows(
+            self._populate_windows, self._add_live_window
+        )
+        self.finished.connect(lambda _: self._stop_window_watch())
 
         if existing is not None:
             self.window_combo.setEditText(existing["window_class"])
@@ -173,15 +177,26 @@ class AddMappingDialog(QDialog):
 
     def _populate_windows(self, pairs):
         self.window_combo.clear()
-        seen = set()
+        self._seen_window_classes.clear()
         for window_class, caption in pairs:
-            if window_class in seen:
+            if window_class in self._seen_window_classes:
                 continue
-            seen.add(window_class)
+            self._seen_window_classes.add(window_class)
             label = f"{window_class}   —   {caption}" if caption else window_class
             self.window_combo.addItem(label, window_class)
         if not pairs:
             self.window_combo.addItem("(no windows found, type manually)")
+
+    def _add_live_window(self, window_class: str, caption: str):
+        if window_class in self._seen_window_classes:
+            return
+        self._seen_window_classes.add(window_class)
+        # Replace the "(no windows found...)" placeholder the first time a
+        # real window shows up, instead of leaving it in the list.
+        if self.window_combo.count() == 1 and self.window_combo.itemData(0) is None:
+            self.window_combo.clear()
+        label = f"{window_class}   —   {caption}" if caption else window_class
+        self.window_combo.addItem(label, window_class)
 
     def _on_accept(self):
         window_class = self.window_combo.currentData()
