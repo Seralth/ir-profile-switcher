@@ -1,13 +1,37 @@
-// One-shot: reports currently open windows back to the GUI's picker
-// service. Loaded fresh and unloaded again each time the "Add mapping"
-// dialog needs a live window list.
+// Live: connects to KWin's own windowAdded signal so newly launched
+// programs show up immediately, then reports the windows already open
+// at watch-start. Stays loaded for as long as the "Add mapping" dialog
+// is open; unloaded when the dialog closes. No polling.
+
+function windowInfo(window) {
+    return window && window.resourceClass
+        ? [window.resourceClass, window.caption || ""]
+        : null;
+}
+
+workspace.windowAdded.connect(function (window) {
+    var info = windowInfo(window);
+    if (!info) {
+        return;
+    }
+    callDBus(
+        "com.seralth.IRProfileSwitcher.Picker",
+        "/Picker",
+        "com.seralth.IRProfileSwitcher.Picker",
+        "WindowAdded",
+        info[0],
+        info[1]
+    );
+});
+
 var list = workspace.windowList();
 var classes = [];
 var captions = [];
 for (var i = 0; i < list.length; i++) {
-    if (list[i].resourceClass) {
-        classes.push(list[i].resourceClass);
-        captions.push(list[i].caption || "");
+    var info = windowInfo(list[i]);
+    if (info) {
+        classes.push(info[0]);
+        captions.push(info[1]);
     }
 }
 callDBus(

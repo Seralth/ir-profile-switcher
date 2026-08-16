@@ -1,5 +1,10 @@
-"""Fetches a live list of currently open windows via a one-shot KWin script,
-for the GUI's "Add mapping" window picker.
+"""Live list of currently open windows for the GUI's "Add mapping" window
+picker.
+
+Event-driven, not polled: a KWin script reports the windows already open
+when the watch starts, then stays loaded and reports each newly launched
+window as it appears via KWin's own windowAdded signal, for as long as
+the picker dialog is open.
 """
 
 from pathlib import Path
@@ -22,13 +27,18 @@ _alive_receivers: list = []
 
 
 class _Receiver(QObject):
-    def __init__(self, on_result):
+    def __init__(self, on_initial, on_added):
         super().__init__()
-        self._on_result = on_result
+        self._on_initial = on_initial
+        self._on_added = on_added
 
     @Slot(list, list)
     def ReceiveWindowList(self, classes, captions):
-        self._on_result(list(zip(classes, captions)))
+        self._on_initial(list(zip(classes, captions)))
+
+    @Slot(str, str)
+    def WindowAdded(self, window_class, caption):
+        self._on_added(window_class, caption)
 
 
 def _kwin_call(method: str, args: list):
@@ -38,33 +48,44 @@ def _kwin_call(method: str, args: list):
     bus.call(msg)
 
 
-def list_open_windows(callback, timeout_ms: int = 2000) -> None:
-    """Asynchronously fetch open windows as [(window_class, caption), ...].
+def watch_open_windows(on_initial, on_added, timeout_ms: int = 2000):
+    """Start a live window watch for as long as the picker dialog is open.
 
-    Calls `callback(pairs)` exactly once -- with real data, or an empty
-    list if nothing responds within timeout_ms.
+    Calls `on_initial(pairs)` once with the windows open at watch-start
+    (or an empty list if nothing responds within timeout_ms), then calls
+    `on_added(window_class, caption)` for every window launched after
+    that, until the returned stop function is called.
+
+    Returns a `stop()` function -- call it when the dialog closes to
+    unload the KWin script and unregister the DBus service.
     """
     bus = QDBusConnection.sessionBus()
-    state = {"fired": False}
+    state = {"initial_fired": False, "stopped": False}
 
-    def finish(pairs):
-        if state["fired"]:
+    def fire_initial(pairs):
+        if state["initial_fired"]:
             return
-        state["fired"] = True
+        state["initial_fired"] = True
+        on_initial(pairs)
+
+    receiver = _Receiver(fire_initial, on_added)
+    # Keep a reference alive at module scope so it isn't garbage collected
+    # while the KWin script is still calling back.
+    _alive_receivers.append(receiver)
+
+    def stop():
+        if state["stopped"]:
+            return
+        state["stopped"] = True
+        _kwin_call("unloadScript", [str(LIST_SCRIPT_PATH)])
         bus.unregisterObject(PICKER_PATH)
         bus.unregisterService(PICKER_SERVICE)
         if receiver in _alive_receivers:
             _alive_receivers.remove(receiver)
-        callback(pairs)
-
-    receiver = _Receiver(finish)
-    # Keep a reference alive at module scope so it isn't garbage collected
-    # before the KWin script calls back.
-    _alive_receivers.append(receiver)
 
     if not bus.registerService(PICKER_SERVICE):
-        finish([])
-        return
+        fire_initial([])
+        return stop
     bus.registerObject(
         PICKER_PATH,
         PICKER_SERVICE,
@@ -76,4 +97,5 @@ def list_open_windows(callback, timeout_ms: int = 2000) -> None:
     _kwin_call("loadScript", [str(LIST_SCRIPT_PATH)])
     _kwin_call("start", [])
 
-    QTimer.singleShot(timeout_ms, lambda: finish([]))
+    QTimer.singleShot(timeout_ms, lambda: fire_initial([]))
+    return stop
