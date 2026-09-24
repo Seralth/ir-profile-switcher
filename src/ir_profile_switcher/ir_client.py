@@ -13,7 +13,8 @@ from PySide6.QtDBus import QDBusConnection
 
 from . import dbus_utils
 
-PRESETS_DIR = Path.home() / ".config" / "input-remapper-2" / "presets"
+CONFIG_DIR = Path.home() / ".config" / "input-remapper-2"
+PRESETS_DIR = CONFIG_DIR / "presets"
 
 SERVICE = "inputremapper.Control"
 OBJECT_PATH = "/inputremapper/Control"
@@ -41,6 +42,10 @@ def _system_bus_call(method: str, args: list):
 
 
 def start_injecting(device: str, preset: str) -> bool:
+    # The daemon forgets which user's config dir to use whenever it restarts
+    # (e.g. during a system update), and then refuses every preset until told
+    # again. Telling it on every switch is cheap and keeps running injections.
+    _system_bus_call("set_config_dir", [str(CONFIG_DIR)])
     result = _system_bus_call("start_injecting", [device, preset])
     return bool(result[0]) if result else False
 

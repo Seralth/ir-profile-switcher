@@ -61,7 +61,9 @@ class WatcherService(QObject):
                 logger.exception(
                     "Failed switching device=%r to preset=%r", device, preset
                 )
-        self._active_targets_key = targets_key
+        # Only remember a switch that worked, so refocusing the window retries.
+        all_ok = len(switched) == len(targets)
+        self._active_targets_key = targets_key if all_ok else None
 
         if switched:
             notify.notify_switch(window_class, switched)
