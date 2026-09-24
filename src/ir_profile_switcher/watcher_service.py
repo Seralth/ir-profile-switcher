@@ -46,6 +46,7 @@ class WatcherService(QObject):
         if targets_key == self._active_targets_key:
             return
 
+        all_ok = True
         for target in targets:
             device = target["device"]
             preset = target["preset"]
@@ -55,10 +56,13 @@ class WatcherService(QObject):
                     "%s -> device=%r preset=%r ok=%s", window_class, device, preset, ok
                 )
             except RuntimeError:
+                ok = False
                 logger.exception(
                     "Failed switching device=%r to preset=%r", device, preset
                 )
-        self._active_targets_key = targets_key
+            all_ok = all_ok and ok
+        # Only remember a switch that worked, so refocusing the window retries.
+        self._active_targets_key = targets_key if all_ok else None
 
 
 def register() -> WatcherService:
