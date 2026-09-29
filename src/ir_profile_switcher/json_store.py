@@ -1,6 +1,7 @@
 """Shared read/write helpers for this app's small JSON state files."""
 
 import json
+import os
 from pathlib import Path
 from typing import TypeVar
 
@@ -15,6 +16,9 @@ def read_json(path: Path, default: T) -> T:
 
 
 def write_json(path: Path, data) -> None:
+    # Write a temp file and swap it in, so a reader never sees a half-written file.
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w") as f:
         json.dump(data, f, indent=2)
+    os.replace(tmp, path)

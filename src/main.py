@@ -58,9 +58,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--watcher", action="store_true", help="Run headless watcher (no GUI)"
     )
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="Add the app menu entry and the background watcher's service",
+    )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Stop the watcher and remove its service and the app menu entry",
+    )
     args = parser.parse_args()
 
-    if args.watcher:
+    if args.install or args.uninstall:
+        from ir_profile_switcher import install
+
+        if args.install:
+            install.install()
+        else:
+            install.uninstall()
+    elif args.watcher:
         run_watcher()
     else:
         run_gui()

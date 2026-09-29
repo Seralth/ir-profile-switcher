@@ -34,10 +34,15 @@ class WatcherService(QObject):
     def NotifyWindow(self, window_class: str):
         if window_class == self._active_window_class:
             return
+
+        try:
+            targets = mappings.find_targets(window_class, mappings.load())
+        except (OSError, ValueError, KeyError, TypeError):
+            # Leave the window unrecorded so its next focus tries again.
+            logger.exception("Could not read mappings for %s", window_class)
+            return
         self._active_window_class = window_class
 
-        current_mappings = mappings.load()
-        targets = mappings.find_targets(window_class, current_mappings)
         if targets is None:
             logger.debug("Unmapped window %s, leaving preset as-is", window_class)
             return

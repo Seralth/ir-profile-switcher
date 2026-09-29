@@ -37,23 +37,23 @@ own. This adds that on top, without depending on X11-only tools (like
 
 ## Install
 
-Symlink the app into the places KDE and systemd look for it:
+Clone the repo anywhere, then from inside it:
 
 ```sh
-# Show up in the KDE application menu
-mkdir -p ~/.local/share/applications
-ln -s "$(pwd)/ir-profile-switcher.desktop" ~/.local/share/applications/
-kbuildsycoca6 --noincremental
-
-# Background watcher, starts at login
-mkdir -p ~/.config/systemd/user
-ln -s "$(pwd)/systemd/ir-profile-switcher.service" ~/.config/systemd/user/
-systemctl --user daemon-reload
+python3 src/main.py --install
 systemctl --user enable --now ir-profile-switcher.service
 ```
 
-(The watcher's enable button in the GUI recreates its own symlink if it
-ever goes missing, so this only needs doing once by hand.)
+`--install` adds the app menu entry and the background watcher's systemd
+user service, both pointing at wherever this copy of the repo lives. Run it
+again after moving the repo. The watcher can also be switched on and off
+from the GUI.
+
+To remove both again:
+
+```sh
+python3 src/main.py --uninstall
+```
 
 ## Usage
 
@@ -79,3 +79,7 @@ python3 src/main.py --watcher
 ## Status
 
 First working version. KDE/Wayland only for now.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
