@@ -342,6 +342,7 @@ class WatcherService(QObject):
         is for programs that were open before the watcher started."""
         all_ok = True
         switched = []
+        reapplied = []
         for device, preset in valid_targets(window_class, entry.get("targets")):
             state = self._state(device)
             ours = self._started.get(device) == preset
@@ -380,6 +381,8 @@ class WatcherService(QObject):
                 self._started[device] = preset
                 self._started_for[device] = class_key(window_class)
                 switched.append({"device": device, "preset": preset})
+                if health_check and ours:
+                    reapplied.append(device)
             else:
                 self._started.pop(device, None)
                 self._started_for.pop(device, None)
@@ -387,6 +390,8 @@ class WatcherService(QObject):
                 notify.notify_failure(device, preset, reason)
         if switched and not health_check:
             notify.notify_switch(self._name(window_class, entry), switched)
+        if reapplied:
+            notify.notify_reapplied(self._name(window_class, entry), reapplied)
         return all_ok
 
 

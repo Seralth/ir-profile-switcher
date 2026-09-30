@@ -124,6 +124,9 @@ install, or uninstall.
 - When a game closes and its devices go back to default, a notification
   says so, for example "Deadlock closed — Razer Tartarus Pro back to
   default". The same checkbox turns it off.
+- When the watcher applies a preset again because input-remapper lost
+  it, a notification says "<Game> preset re-applied", at most once per
+  device every 5 minutes. The switch checkbox turns it off.
 - A failed switch always shows a notification, at most once per device
   every 5 minutes.
 - The watcher never asks for a password. When input-remapper's service

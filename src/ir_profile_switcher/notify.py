@@ -26,7 +26,11 @@ APP_NAME = "Input Remapper Profile Switcher"
 # Failure notices per device or command are sent at most this often.
 FAILURE_INTERVAL_S = 5 * 60
 
+# Re-apply notices per device are sent at most this often.
+REAPPLY_INTERVAL_S = 5 * 60
+
 _last_failure_notice: dict[str, float] = {}
+_last_reapply_notice: dict[str, float] = {}
 
 
 def _rate_limited(last_sent: dict[str, float], key: str, interval_s: float) -> bool:
@@ -83,6 +87,23 @@ def notify_game_closed(name: str, devices: list[str]) -> None:
         return
     names = ", ".join(short_device_name(d) for d in devices)
     _send(f"{name} closed — {names} back to default", "")
+
+
+def notify_reapplied(name: str, devices: list[str]) -> None:
+    """The health check started a preset again that input-remapper had
+    lost. At most once per device every REAPPLY_INTERVAL_S."""
+    if not config.get_notifications_enabled():
+        return
+    devices = [
+        d for d in devices if not _rate_limited(_last_reapply_notice, d, REAPPLY_INTERVAL_S)
+    ]
+    if not devices:
+        return
+    names = ", ".join(short_device_name(d) for d in devices)
+    _send(
+        f"{name} preset re-applied",
+        f"input-remapper had stopped it — for example the {names} reconnected.",
+    )
 
 
 def notify_failure(device: str, preset: str, reason: str) -> None:
