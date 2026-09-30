@@ -107,6 +107,9 @@ class WatcherService(QObject):
         # and have not been focused since. Their running presets are taken
         # over instead of started again.
         self._already_open: set[str] = set()
+        # class key -> the latest non-empty window caption of that class.
+        # Notifications use it as the program's name.
+        self._captions: dict[str, str] = {}
 
         self._health_timer = QTimer(self)
         self._health_timer.setInterval(HEALTH_CHECK_INTERVAL_MS)
@@ -115,6 +118,7 @@ class WatcherService(QObject):
     @Slot(str, str)
     def NotifyWindow(self, window_class: str, caption: str):
         """A window was focused."""
+        self._remember_caption(window_class, caption)
         self._focus(window_class)
 
     @Slot(str, str, str, bool)
@@ -122,6 +126,7 @@ class WatcherService(QObject):
         key = class_key(window_class)
         first = not self._is_open(key) and key not in self._close_timers
         self._windows[window_id] = window_class
+        self._remember_caption(window_class, caption)
         self._cancel_close(key)
         if active:
             self._focus(window_class)
@@ -137,12 +142,18 @@ class WatcherService(QObject):
         if not self._is_open(key) and key not in self._close_timers:
             self._start_close(window_class)
 
+    @Slot(str, str)
+    def CaptionChanged(self, window_class: str, caption: str):
+        self._remember_caption(window_class, caption)
+
     @Slot(list, list, list)
     def OpenWindows(self, window_ids, window_classes, captions):
         """The windows open when the KWin script loaded: at watcher start,
         and again after KWin restarts."""
         old_keys = {class_key(c): c for c in self._windows.values()}
         self._windows = {str(i): str(c) for i, c in zip(window_ids, window_classes)}
+        for window_class, caption in zip(window_classes, captions):
+            self._remember_caption(str(window_class), str(caption))
         new_keys = {class_key(c) for c in self._windows.values()}
         for key in new_keys:
             self._cancel_close(key)
@@ -151,6 +162,20 @@ class WatcherService(QObject):
         for key, window_class in old_keys.items():
             if key not in new_keys and key not in self._close_timers:
                 self._start_close(window_class)
+
+    def _remember_caption(self, window_class: str, caption: str) -> None:
+        if caption:
+            self._captions[class_key(window_class)] = caption
+
+    def _name(self, window_class: str, entry: dict) -> str:
+        """The program's name for notifications: its window caption, else
+        the name saved with the mapping, else the window class."""
+        name = entry.get("name")
+        return (
+            self._captions.get(class_key(window_class))
+            or (name if isinstance(name, str) and name else None)
+            or window_class
+        )
 
     def _is_open(self, key: str) -> bool:
         return any(class_key(c) == key for c in self._windows.values())
@@ -181,14 +206,16 @@ class WatcherService(QObject):
             entry = mappings.find_mapping(window_class, mappings.load())
         except (OSError, ValueError, TypeError):
             logger.exception("Could not read mappings for %s", window_class)
-            return
+            entry = None
+        name = self._name(window_class, entry) if entry is not None else window_class
+        self._captions.pop(key, None)
         if entry is None:
             return
-        logger.info("%s closed", window_class)
+        logger.info("%s (%s) closed", window_class, name)
         if config.get_on_game_close() == "revert":
-            self._revert(window_class)
+            self._revert(window_class, name)
 
-    def _revert(self, window_class: str) -> None:
+    def _revert(self, window_class: str, name: str) -> None:
         """Stop the presets this watcher started for the class's mapping,
         if the devices still run them, and start each device's own
         autoload preset, if it has one."""
@@ -217,7 +244,7 @@ class WatcherService(QObject):
         if self._active_window_class and class_key(self._active_window_class) == key:
             self._active_window_class = None
         if reverted:
-            notify.notify_game_closed(window_class, reverted)
+            notify.notify_game_closed(name, reverted)
 
     def _focus(self, window_class: str):
         if window_class == self._active_window_class:
@@ -227,13 +254,13 @@ class WatcherService(QObject):
         self._already_open.discard(key)
 
         try:
-            targets = mappings.find_targets(window_class, mappings.load())
+            entry = mappings.find_mapping(window_class, mappings.load())
         except (OSError, ValueError, TypeError):
             # Leave the window unrecorded so its next focus tries again.
             logger.exception("Could not read mappings for %s", window_class)
             return
 
-        if targets is None:
+        if entry is None:
             logger.debug("Unmapped window %s, leaving preset as-is", window_class)
             self._active_window_class = window_class
             self._focused_mapped_class = None
@@ -242,7 +269,7 @@ class WatcherService(QObject):
 
         self._focused_mapped_class = window_class
         self._health_timer.start()
-        if self._apply(window_class, targets, health_check=False, take_over=take_over):
+        if self._apply(window_class, entry, health_check=False, take_over=take_over):
             self._active_window_class = window_class
         else:
             self._active_window_class = None
@@ -255,16 +282,16 @@ class WatcherService(QObject):
             self._health_timer.stop()
             return
         try:
-            targets = mappings.find_targets(window_class, mappings.load())
+            entry = mappings.find_mapping(window_class, mappings.load())
         except (OSError, ValueError, TypeError):
             logger.exception("Could not read mappings for %s", window_class)
             return
-        if targets is None:
+        if entry is None:
             # The mapping was removed while the window stayed focused.
             self._focused_mapped_class = None
             self._health_timer.stop()
             return
-        if self._apply(window_class, targets, health_check=True):
+        if self._apply(window_class, entry, health_check=True):
             self._active_window_class = window_class
 
     def check_health_soon(self, delay_ms: int = RESUME_CHECK_DELAY_MS):
@@ -280,7 +307,7 @@ class WatcherService(QObject):
             return "unreachable"
 
     def _apply(
-        self, window_class: str, targets, *, health_check: bool, take_over: bool = False
+        self, window_class: str, entry: dict, *, health_check: bool, take_over: bool = False
     ) -> bool:
         """Switch every valid target that is not already running. Returns
         True when every valid target is running afterwards.
@@ -295,7 +322,7 @@ class WatcherService(QObject):
         is for programs that were open before the watcher started."""
         all_ok = True
         switched = []
-        for device, preset in valid_targets(window_class, targets):
+        for device, preset in valid_targets(window_class, entry.get("targets")):
             state = self._state(device)
             ours = self._started.get(device) == preset
             if ours and health_check and state not in DROPOUT_STATES:
@@ -339,7 +366,7 @@ class WatcherService(QObject):
                 all_ok = False
                 notify.notify_failure(device, preset, reason)
         if switched and not health_check:
-            notify.notify_switch(window_class, switched)
+            notify.notify_switch(self._name(window_class, entry), switched)
         return all_ok
 
 

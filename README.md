@@ -13,8 +13,9 @@ own. This adds that on top, without depending on X11-only tools (like
 
 ## How it works
 
-- A small KWin script watches window activation/launch events natively
-  (no polling) and reports the focused window's class over DBus.
+- A small KWin script watches window events natively (no polling). It
+  reports the focused window, every window that opens or closes, and
+  window titles over DBus.
 - A Python watcher service matches that against your mappings and calls
   input-remapper's own DBus service (`inputremapper.Control`) directly to
   switch presets — no shelling out to `input-remapper-control`.
@@ -91,6 +92,10 @@ Launch "Input Remapper Profile Switcher" from the KDE app menu, or:
 python3 src/main.py
 ```
 
+Picking a window in "Add mapping" fills in its title as the mapping's
+name. The name shows in the mapping list next to the window class. You
+can change it or leave it empty.
+
 The GUI's status row shows whether input-remapper is installed and
 running as a service, and whether this app's own watcher is enabled --
 with buttons to fix, enable/disable, or (if input-remapper's service unit
@@ -100,6 +105,9 @@ install, or uninstall.
 
 ## Notifications
 
+- Notifications name the program by its window title, for example
+  "Deadlock" instead of "steam_app_1422450". Without a title, they use
+  the name saved with the mapping, then the window class.
 - A switch shows a short notification. The GUI has a checkbox to turn
   switch notifications off.
 - When a game closes and its devices go back to default, a notification

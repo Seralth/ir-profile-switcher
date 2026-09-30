@@ -154,6 +154,8 @@ class AddMappingDialog(QDialog):
         # can share the same window_class, so the combo entry should only
         # disappear once the LAST window of that class closes.
         self._window_class_counts: Counter[str] = Counter()
+        # window class -> caption of the first open window of that class.
+        self._window_captions: dict[str, str] = {}
 
         layout = QVBoxLayout(self)
 
@@ -168,6 +170,12 @@ class AddMappingDialog(QDialog):
         self.window_error_label.setWordWrap(True)
         self.window_error_label.hide()
         layout.addWidget(self.window_error_label)
+        self.window_combo.activated.connect(self._on_window_picked)
+
+        layout.addWidget(QLabel("Name (used in notifications):"))
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Optional. Filled in from the picked window.")
+        layout.addWidget(self.name_edit)
 
         layout.addWidget(QLabel("Devices for this program:"))
         self.targets_table = QTableWidget(0, 3)
@@ -219,6 +227,7 @@ class AddMappingDialog(QDialog):
 
         if existing is not None:
             self.window_combo.setEditText(existing["window_class"])
+            self.name_edit.setText(existing.get("name", ""))
             for target in existing["targets"]:
                 self._targets.append(target)
             self._refresh_targets_table()
@@ -274,6 +283,7 @@ class AddMappingDialog(QDialog):
         def change():
             self.window_combo.clear()
             self._window_class_counts.clear()
+            self._window_captions.clear()
             for window_class, caption in pairs:
                 self._add_live_window(window_class, caption)
             if not pairs:
@@ -285,6 +295,7 @@ class AddMappingDialog(QDialog):
         self._window_class_counts[window_class] += 1
         if self._window_class_counts[window_class] > 1:
             return  # another window of this class is already in the list
+        self._window_captions[window_class] = caption
 
         def change():
             # Replace the "(no windows found...)" placeholder the first time
@@ -302,6 +313,7 @@ class AddMappingDialog(QDialog):
         if self._window_class_counts[window_class] > 0:
             return  # other windows of this class are still open
         del self._window_class_counts[window_class]
+        self._window_captions.pop(window_class, None)
         index = self.window_combo.findData(window_class)
         if index == -1:
             return
@@ -312,6 +324,11 @@ class AddMappingDialog(QDialog):
                 self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
 
         self._keep_text(change)
+
+    def _on_window_picked(self, index: int):
+        window_class = self.window_combo.itemData(index)
+        if window_class is not None:
+            self.name_edit.setText(self._window_captions.get(window_class, ""))
 
     def _on_accept(self):
         # The text shown is what gets saved. A picked entry shows
@@ -330,6 +347,9 @@ class AddMappingDialog(QDialog):
             return
 
         self.result_mapping = {"window_class": window_class, "targets": self._targets}
+        name = self.name_edit.text().strip()
+        if name:
+            self.result_mapping["name"] = name
         self.accept()
 
 
@@ -338,18 +358,21 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Input Remapper Profile Switcher")
         self.setWindowIcon(QIcon(str(paths.ICON_PATH)))
-        self.resize(760, 440)
+        self.resize(900, 440)
 
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Program (window class)", "Devices / Presets"])
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.ResizeToContents
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(
+            ["Name", "Program (window class)", "Devices / Presets"]
         )
-        self.table.horizontalHeader().setMinimumSectionSize(220)
+        for column in (0, 1):
+            self.table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeMode.ResizeToContents
+            )
+        self.table.horizontalHeader().setMinimumSectionSize(160)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -509,9 +532,10 @@ class MainWindow(QMainWindow):
         self._mappings = mappings.load()
         self.table.setRowCount(len(self._mappings))
         for row, entry in enumerate(self._mappings):
-            self.table.setItem(row, 0, QTableWidgetItem(entry["window_class"]))
+            self.table.setItem(row, 0, QTableWidgetItem(entry.get("name", "")))
+            self.table.setItem(row, 1, QTableWidgetItem(entry["window_class"]))
             summary = ", ".join(f"{t['device']}: {t['preset']}" for t in entry["targets"])
-            self.table.setItem(row, 1, QTableWidgetItem(summary))
+            self.table.setItem(row, 2, QTableWidgetItem(summary))
 
     def _open_mapping_dialog(self, existing: dict | None = None):
         dialog = AddMappingDialog(self, existing=existing)

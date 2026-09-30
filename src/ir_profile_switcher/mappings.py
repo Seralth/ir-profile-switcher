@@ -4,12 +4,15 @@ Schema:
 [
   {
     "window_class": "steam_app_1422450",
+    "name": "Deadlock",
     "targets": [
       {"device": "Razer Razer DeathAdder V3 Pro", "preset": "Deadlock"}
     ]
   },
   ...
 ]
+
+"name" is optional. It is the window caption picked in the GUI.
 """
 
 from pathlib import Path
@@ -46,8 +49,3 @@ def find_mapping(window_class: str, mappings: list[dict]) -> dict | None:
             return entry
     return None
 
-
-def find_targets(window_class: str, mappings: list[dict]) -> list[dict] | None:
-    """Targets of the mapping for window_class, or None if unmapped."""
-    entry = find_mapping(window_class, mappings)
-    return None if entry is None else entry.get("targets", [])

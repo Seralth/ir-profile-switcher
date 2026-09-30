@@ -52,11 +52,11 @@ def _send(summary: str, body: str, *, urgency: str = "normal", expire_ms: int = 
         logger.exception("Failed to send notification")
 
 
-def notify_switch(window_class: str, targets: list[dict]) -> None:
+def notify_switch(name: str, targets: list[dict]) -> None:
     if not config.get_notifications_enabled():
         return
     body = ", ".join(f"{t['device']} → {t['preset']}" for t in targets)
-    _send(f"Switched preset for {window_class}", body)
+    _send(f"Switched preset for {name}", body)
 
 
 def short_device_name(device: str) -> str:
