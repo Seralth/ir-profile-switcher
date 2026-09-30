@@ -39,9 +39,9 @@ def find_targets(window_class: str, mappings: list[dict]) -> list[dict] | None:
     ]
     for entry in entries:
         if entry["window_class"] == window_class:
-            return entry.get("targets")
+            return entry.get("targets", [])
     wanted = window_class.casefold()
     for entry in entries:
         if entry["window_class"].casefold() == wanted:
-            return entry.get("targets")
+            return entry.get("targets", [])
     return None

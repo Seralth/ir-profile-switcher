@@ -51,5 +51,9 @@ def start_injecting(device: str, preset: str) -> bool:
 
 
 def get_state(device: str) -> str:
+    """input-remapper's injector state for the device, e.g. "RUNNING",
+    "STARTING", "FAILED", "STOPPED", "NO_GRAB", or "UNKNOWN" when
+    input-remapper has no injection for the device (for example after
+    input-remapper restarted)."""
     result = _system_bus_call("get_state", [device])
     return str(result[0]) if result else ""
