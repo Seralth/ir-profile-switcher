@@ -195,23 +195,47 @@ class AddMappingDialog(QDialog):
         self.window_error_label.setText(message)
         self.window_error_label.show()
 
+    def _keep_text(self, change):
+        """Run change() on the window list without changing the text shown.
+
+        Qt replaces the edit text of an editable QComboBox when the list is
+        cleared, when an item is added to an empty list, or when the
+        selected item is removed. Without this, the class typed by the user
+        or loaded for Edit could silently turn into another window's class
+        once the window list arrives. The loading placeholder is the only
+        text that may be replaced.
+        """
+        text = self.window_combo.currentText()
+        keep = bool(text) and text not in (PLACEHOLDER_LOADING, PLACEHOLDER_NO_WINDOWS)
+        change()
+        if keep and self.window_combo.currentText() != text:
+            self.window_combo.setCurrentIndex(-1)
+            self.window_combo.setEditText(text)
+
     def _populate_windows(self, pairs):
-        self.window_combo.clear()
-        self._window_class_counts.clear()
-        for window_class, caption in pairs:
-            self._add_live_window(window_class, caption)
-        if not pairs:
-            self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
+        def change():
+            self.window_combo.clear()
+            self._window_class_counts.clear()
+            for window_class, caption in pairs:
+                self._add_live_window(window_class, caption)
+            if not pairs:
+                self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
+
+        self._keep_text(change)
 
     def _add_live_window(self, window_class: str, caption: str):
         self._window_class_counts[window_class] += 1
         if self._window_class_counts[window_class] > 1:
             return  # another window of this class is already in the list
-        # Replace the "(no windows found...)" placeholder the first time a
-        # real window shows up, instead of leaving it in the list.
-        if self.window_combo.count() == 1 and self.window_combo.itemData(0) is None:
-            self.window_combo.clear()
-        self.window_combo.addItem(_format_label(window_class, caption), window_class)
+
+        def change():
+            # Replace the "(no windows found...)" placeholder the first time
+            # a real window shows up, instead of leaving it in the list.
+            if self.window_combo.count() == 1 and self.window_combo.itemData(0) is None:
+                self.window_combo.clear()
+            self.window_combo.addItem(_format_label(window_class, caption), window_class)
+
+        self._keep_text(change)
 
     def _remove_live_window(self, window_class: str):
         if self._window_class_counts[window_class] <= 0:
@@ -223,29 +247,21 @@ class AddMappingDialog(QDialog):
         index = self.window_combo.findData(window_class)
         if index == -1:
             return
-        # Removing an item from an editable QComboBox can silently change
-        # currentIndex/currentData out from under the user -- e.g. jumping
-        # selection to a different entry -- if they closed the picked
-        # program while still filling in the rest of the dialog. If the
-        # entry being removed was the selected one, force currentIndex to
-        # -1 (no item selected) and restore the displayed text as free
-        # text, so _on_accept()'s currentText()-parsing fallback picks up
-        # the right window_class instead of currentData() silently
-        # returning some other item's data.
-        was_current = index == self.window_combo.currentIndex()
-        preserved_text = self.window_combo.currentText()
-        self.window_combo.removeItem(index)
-        if self.window_combo.count() == 0:
-            self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
-        if was_current:
-            self.window_combo.setCurrentIndex(-1)
-            self.window_combo.setEditText(preserved_text)
+
+        def change():
+            self.window_combo.removeItem(index)
+            if self.window_combo.count() == 0:
+                self.window_combo.addItem(PLACEHOLDER_NO_WINDOWS)
+
+        self._keep_text(change)
 
     def _on_accept(self):
-        window_class = self.window_combo.currentData()
-        if not window_class:
-            window_class = self.window_combo.currentText().split(LABEL_SEP)[0].strip()
-        if not window_class or window_class.startswith("("):
+        # The text shown is what gets saved. A picked entry shows
+        # "class   —   caption", so the class is the part before the
+        # separator. Typed text is used as-is.
+        text = self.window_combo.currentText().strip()
+        window_class = text.split(LABEL_SEP)[0].strip()
+        if not window_class or text in (PLACEHOLDER_LOADING, PLACEHOLDER_NO_WINDOWS):
             QMessageBox.warning(self, "Missing program", "Enter or pick a window class.")
             return
 
@@ -414,13 +430,36 @@ class MainWindow(QMainWindow):
         dialog = AddMappingDialog(self, existing=existing)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        # Editing replaces by the mapping's original window_class (in case
-        # it was changed); adding replaces by the new one (upsert on a
-        # collision with an existing mapping for that program).
-        old_window_class = existing["window_class"] if existing else dialog.result_mapping["window_class"]
+        new_mapping = dialog.result_mapping
+        new_class = new_mapping["window_class"]
+        old_class = existing["window_class"] if existing else None
         current = mappings.load()
-        current = [m for m in current if m["window_class"] != old_window_class]
-        current.append(dialog.result_mapping)
+
+        # Classes match without regard to case, so a mapping that differs
+        # only in case would compete with the new one.
+        clashes = [
+            m
+            for m in current
+            if m["window_class"] != old_class
+            and m["window_class"].casefold() == new_class.casefold()
+        ]
+        if clashes:
+            confirm = QMessageBox.question(
+                self,
+                "Replace mapping",
+                f"A mapping for '{clashes[0]['window_class']}' already exists.\n\n"
+                "Replace the existing mapping?",
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+            current = [m for m in current if m not in clashes]
+
+        # Editing keeps the mapping's place in the list.
+        index = next(
+            (i for i, m in enumerate(current) if m["window_class"] == old_class), len(current)
+        )
+        current = [m for m in current if m["window_class"] != old_class]
+        current.insert(index, new_mapping)
         mappings.save(current)
         self._refresh_table()
 
