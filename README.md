@@ -32,9 +32,10 @@ own. This adds that on top, without depending on X11-only tools (like
   Restarting a preset briefly interrupts the device.
 - While a mapped program is focused, the watcher checks every 30 seconds
   that input-remapper still runs the program's presets, and again shortly
-  after resume. A preset that stopped is applied again. This covers a
-  device reconnect, an input-remapper restart, and input-remapper's own
-  autoload at login.
+  after resume. A preset that input-remapper lost is applied again. This
+  covers a device reconnect and an input-remapper restart. A preset you
+  stop on purpose, for example in input-remapper's own window, stays
+  stopped until the next switch.
 - A failed switch is retried on the next focus and on the next check.
 
 ## Requirements

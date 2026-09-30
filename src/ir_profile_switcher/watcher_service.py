@@ -11,9 +11,10 @@ Behavior:
 - A window only counts as handled after every target switched. Focusing
   the same window again retries a failed switch.
 - While a mapped window is focused, a health check runs every 30 s and
-  re-applies any preset input-remapper is no longer injecting (device
-  reconnect, input-remapper restart, input-remapper's login autoload).
-  The health check also runs shortly after the system resumes.
+  re-applies any preset input-remapper lost (device reconnect,
+  input-remapper restart). A preset stopped on purpose, for example in
+  input-remapper's own window, stays stopped. The health check also runs
+  shortly after the system resumes.
 - Mappings are re-read from disk on every notification, so GUI edits take
   effect immediately without restarting the watcher.
 """
@@ -38,6 +39,10 @@ RESUME_CHECK_DELAY_MS = 5_000
 # is injecting. STARTING is included so a check right after a switch does
 # not restart an injection that is still starting up.
 INJECTING_STATES = ("RUNNING", "STARTING")
+# get_state values that mean input-remapper lost a preset without anyone
+# asking: the injector died, the daemon restarted, or the device grab was
+# lost. "STOPPED" is not one of them: someone stopped the preset on purpose.
+DROPOUT_STATES = ("FAILED", "UNKNOWN", "NO_GRAB")
 
 
 def valid_targets(window_class: str, targets) -> list[tuple[str, str]]:
@@ -125,24 +130,30 @@ class WatcherService(QObject):
         if self._focused_mapped_class is not None:
             QTimer.singleShot(delay_ms, self.check_health)
 
-    def _is_running(self, device: str, preset: str) -> tuple[bool, str]:
-        """Whether device is injecting the preset this watcher started, and
-        the state input-remapper reported."""
+    def _state(self, device: str) -> str:
+        """input-remapper's state for the device, or "unreachable"."""
         try:
-            state = ir_client.get_state(device)
+            return ir_client.get_state(device)
         except RuntimeError as e:
             logger.debug("get_state failed for %r: %s", device, e)
-            return False, "unreachable"
-        return state in INJECTING_STATES and self._started.get(device) == preset, state
+            return "unreachable"
 
     def _apply(self, window_class: str, targets, *, health_check: bool) -> bool:
         """Switch every valid target that is not already running. Returns
-        True when every valid target is running afterwards."""
+        True when every valid target is running afterwards.
+
+        The health check only re-applies a preset this watcher started
+        when input-remapper lost it (DROPOUT_STATES). A preset someone
+        stopped on purpose stays stopped. A target whose switch failed is
+        always tried again."""
         all_ok = True
         switched = []
         for device, preset in valid_targets(window_class, targets):
-            running, state = self._is_running(device, preset)
-            if running:
+            state = self._state(device)
+            ours = self._started.get(device) == preset
+            if ours and health_check and state not in DROPOUT_STATES:
+                continue
+            if ours and not health_check and state in INJECTING_STATES:
                 continue
             if health_check:
                 logger.warning(

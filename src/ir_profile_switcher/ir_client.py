@@ -41,11 +41,15 @@ def _system_bus_call(method: str, args: list):
     return dbus_utils.call(bus, SERVICE, OBJECT_PATH, INTERFACE, method, args)
 
 
-def start_injecting(device: str, preset: str) -> bool:
+def _send_config_dir() -> None:
     # The daemon forgets which user's config dir to use whenever it restarts
     # (e.g. during a system update), and then refuses every preset until told
-    # again. Telling it on every switch is cheap and keeps running injections.
+    # again. Telling it before every start is cheap and keeps running injections.
     _system_bus_call("set_config_dir", [str(CONFIG_DIR)])
+
+
+def start_injecting(device: str, preset: str) -> bool:
+    _send_config_dir()
     result = _system_bus_call("start_injecting", [device, preset])
     return bool(result[0]) if result else False
 
@@ -57,3 +61,14 @@ def get_state(device: str) -> str:
     input-remapper restarted)."""
     result = _system_bus_call("get_state", [device])
     return str(result[0]) if result else ""
+
+
+def stop_injecting(device: str) -> None:
+    _system_bus_call("stop_injecting", [device])
+
+
+def autoload_single(device: str) -> None:
+    """Start the device's own autoload preset, if input-remapper has one
+    set for it. Does nothing for a device without an autoload preset."""
+    _send_config_dir()
+    _system_bus_call("autoload_single", [device])
