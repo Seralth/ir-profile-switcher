@@ -225,10 +225,10 @@ class WatcherService(QObject):
         except (OSError, ValueError, TypeError):
             logger.exception("Could not read mappings for %s", window_class)
             entry = None
-        name = self._name(window_class, entry) if entry is not None else window_class
         if entry is None:
             self._captions.pop(key, None)
             return
+        name = self._name(window_class, entry)
         logger.info("%s (%s) closed", window_class, name)
         if config.get_on_game_close() == "revert":
             self._revert(window_class, name)
