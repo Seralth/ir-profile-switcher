@@ -106,6 +106,10 @@ class AddMappingDialog(QDialog):
         self.window_combo.view().setMinimumWidth(520)
         self.window_combo.addItem(PLACEHOLDER_LOADING)
         layout.addWidget(self.window_combo)
+        self.window_error_label = QLabel()
+        self.window_error_label.setWordWrap(True)
+        self.window_error_label.hide()
+        layout.addWidget(self.window_error_label)
 
         layout.addWidget(QLabel("Devices for this program:"))
         self.targets_table = QTableWidget(0, 3)
@@ -148,7 +152,10 @@ class AddMappingDialog(QDialog):
         layout.addWidget(buttons)
 
         self._stop_window_watch = window_picker.watch_open_windows(
-            self._populate_windows, self._add_live_window, self._remove_live_window
+            self._populate_windows,
+            self._add_live_window,
+            self._remove_live_window,
+            self._show_window_error,
         )
         self.finished.connect(lambda _: self._stop_window_watch())
 
@@ -183,6 +190,10 @@ class AddMappingDialog(QDialog):
     def _remove_target(self, device: str):
         self._targets = [t for t in self._targets if t["device"] != device]
         self._refresh_targets_table()
+
+    def _show_window_error(self, message: str):
+        self.window_error_label.setText(message)
+        self.window_error_label.show()
 
     def _populate_windows(self, pairs):
         self.window_combo.clear()
