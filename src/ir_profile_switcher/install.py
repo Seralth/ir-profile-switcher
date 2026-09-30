@@ -96,6 +96,9 @@ def install() -> None:
     install_unit()
     _write(DESKTOP_PATH, desktop_text())
     _refresh_menu()
+    # uninstall() disables the watcher, so a reinstall must enable it again.
+    # Without this, the watcher runs until the next login and then stays off.
+    subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], capture_output=True)
 
 
 def uninstall() -> None:

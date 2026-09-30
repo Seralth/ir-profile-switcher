@@ -41,12 +41,11 @@ Clone the repo anywhere, then from inside it:
 
 ```sh
 python3 src/main.py --install
-systemctl --user enable --now ir-profile-switcher.service
 ```
 
 `--install` adds the app menu entry and the background watcher's systemd
-user service, both pointing at wherever this copy of the repo lives. Run it
-again after moving the repo. The watcher can also be switched on and off
+user service, both pointing at wherever this copy of the repo lives, then
+enables and starts the watcher. Run it again after moving the repo. The watcher can also be switched on and off
 from the GUI.
 
 To remove both again:
