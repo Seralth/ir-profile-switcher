@@ -58,8 +58,8 @@ own. This adds that on top, without depending on X11-only tools (like
 - The commands run with `/bin/sh -c` in your home folder. The watcher
   does not wait for them. A command that still runs after 60 seconds is
   stopped. To start a program that should keep running, use
-  `setsid -f program`. A command that fails shows a notification, at
-  most once every 5 minutes.
+  `systemd-run --user program`. A command that fails shows a
+  notification, at most once every 5 minutes.
 - Programs that were already open when the watcher started still count
   as open. When such a program is focused and its device already runs a
   preset, the watcher keeps that preset running instead of restarting it.
