@@ -1,5 +1,8 @@
+import logging
+import threading
 from collections import Counter
 
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -23,13 +26,68 @@ from PySide6.QtWidgets import (
 
 from . import config, ir_client, mappings, paths, preflight, watcher_control, window_picker
 
+logger = logging.getLogger(__name__)
+
 LABEL_SEP = "   —   "
 PLACEHOLDER_LOADING = "(loading open windows...)"
 PLACEHOLDER_NO_WINDOWS = "(no windows found, type manually)"
+STATUS_REFRESH_MS = 5000
 
 
 def _format_label(window_class: str, caption: str) -> str:
     return f"{window_class}{LABEL_SEP}{caption}" if caption else window_class
+
+
+def _read_status() -> dict:
+    """Ask systemd for the state of input-remapper and of the watcher.
+    Runs several systemctl commands, so the GUI calls it off the GUI
+    thread."""
+    ir_state = preflight.status()
+    return {
+        "ir_state": ir_state,
+        "service_name": config.get_input_remapper_service(),
+        "ir_enabled": preflight.is_service_enabled(),
+        # ir_state can only be "ok" when is_service_active() was True, so
+        # this avoids spawning a second identical `systemctl is-active`
+        # subprocess just to re-derive what status() already determined.
+        "ir_active": ir_state == "ok",
+        "watcher_enabled": watcher_control.is_enabled(),
+        "watcher_active": watcher_control.is_active(),
+    }
+
+
+class _StatusReader(QObject):
+    """Runs _read_status() in a worker thread and emits the result on the
+    GUI thread. One read runs at a time. A request during a read starts
+    one more read after the current read."""
+
+    done = Signal(dict)
+
+    def __init__(self):
+        super().__init__()
+        self._lock = threading.Lock()
+        self._busy = False
+        self._again = False
+
+    def request(self):
+        with self._lock:
+            if self._busy:
+                self._again = True
+                return
+            self._busy = True
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        while True:
+            try:
+                self.done.emit(_read_status())
+            except Exception:  # noqa: BLE001 -- a failed read must not stop later reads
+                logger.exception("Could not read service status")
+            with self._lock:
+                if not self._again:
+                    self._busy = False
+                    return
+                self._again = False
 
 
 class ServicePickerDialog(QDialog):
@@ -340,17 +398,38 @@ class MainWindow(QMainWindow):
         self.notify_checkbox.toggled.connect(config.set_notifications_enabled)
         layout.addWidget(self.notify_checkbox)
 
+        self.ir_status_label.setText("input-remapper: checking...")
+        self.watcher_status_label.setText("Watcher service: checking...")
+        for button in (
+            self.ir_fix_button,
+            self.ir_disable_button,
+            self.watcher_start_button,
+            self.watcher_stop_button,
+        ):
+            button.setEnabled(False)
+        self.ir_pick_button.setVisible(False)
+
+        self._status_reader = _StatusReader()
+        self._status_reader.done.connect(self._show_status)
+        self._status_timer = QTimer(self)
+        self._status_timer.setInterval(STATUS_REFRESH_MS)
+        self._status_timer.timeout.connect(self._refresh_status)
+        self._status_timer.start()
+
         self._refresh_table()
         self._refresh_status()
 
     def _refresh_status(self):
-        ir_state = preflight.status()
-        service_name = config.get_input_remapper_service()
+        self._status_reader.request()
+
+    def _show_status(self, status: dict):
+        ir_state = status["ir_state"]
+        service_name = status["service_name"]
         ir_text = {
             "ok": f"input-remapper: installed, running as a service ({service_name})",
             "installed_not_running": (
                 f"input-remapper: installed, but '{service_name}' is NOT running "
-                "(will prompt for a password on every switch until fixed)"
+                "(presets cannot switch until fixed)"
             ),
             "binary_found_no_service": (
                 f"input-remapper: binary found, but no service named "
@@ -361,15 +440,10 @@ class MainWindow(QMainWindow):
         self.ir_status_label.setText(ir_text)
         self.ir_fix_button.setEnabled(ir_state == "installed_not_running")
         self.ir_pick_button.setVisible(ir_state == "binary_found_no_service")
-        ir_enabled = preflight.is_service_enabled()
-        # ir_state can only be "ok" when is_service_active() was True, so
-        # this avoids spawning a second identical `systemctl is-active`
-        # subprocess just to re-derive what status() already determined.
-        ir_active = ir_state == "ok"
-        self.ir_disable_button.setEnabled(ir_enabled or ir_active)
+        self.ir_disable_button.setEnabled(status["ir_enabled"] or status["ir_active"])
 
-        enabled = watcher_control.is_enabled()
-        active = watcher_control.is_active()
+        enabled = status["watcher_enabled"]
+        active = status["watcher_active"]
         if enabled and active:
             watcher_text = "Watcher service: enabled, running"
         elif enabled and not active:
