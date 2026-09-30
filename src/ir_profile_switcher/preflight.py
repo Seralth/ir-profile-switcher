@@ -1,9 +1,9 @@
 """Checks that input-remapper is actually installed and running as its own
 systemd service (root-owned, name configurable -- see config.py) rather
 than the on-demand pkexec path that input-remapper falls back to, which is
-what prompts for a password every single time it's launched. If we find it
-installed but not running as the service, we fix that once here instead of
-letting every preset-switch attempt trigger its own prompt.
+what prompts for a password every single time it's launched. The GUI's
+Fix button enables and starts the service once, with one password prompt.
+The watcher only reports the problem and never prompts.
 
 This tool never installs input-remapper itself -- if it's missing
 entirely, that's reported, not silently acted on. If the binary is found
@@ -13,9 +13,11 @@ user repoint the configured name if it's been renamed.
 """
 
 import shutil
-import subprocess
 
 from . import config, systemctl_utils
+
+# Long enough to type a password into the pkexec prompt.
+PKEXEC_TIMEOUT_S = 120
 
 
 def has_binary() -> bool:
@@ -24,11 +26,7 @@ def has_binary() -> bool:
 
 def has_service_unit(service_name: str | None = None) -> bool:
     service_name = service_name or config.get_input_remapper_service()
-    result = subprocess.run(
-        ["systemctl", "list-unit-files", service_name, "--no-legend"],
-        capture_output=True,
-        text=True,
-    )
+    result = systemctl_utils.run(["systemctl", "list-unit-files", service_name, "--no-legend"])
     return bool(result.stdout.strip())
 
 
@@ -78,10 +76,8 @@ def ensure_service_running() -> tuple[bool, str]:
     if state == "ok":
         return True, f"{service_name} is already running."
 
-    result = subprocess.run(
-        ["pkexec", "systemctl", "enable", "--now", service_name],
-        capture_output=True,
-        text=True,
+    result = systemctl_utils.run(
+        ["pkexec", "systemctl", "enable", "--now", service_name], timeout=PKEXEC_TIMEOUT_S
     )
     if result.returncode != 0 or not is_service_active(service_name):
         return False, f"Failed to start {service_name}: {result.stderr.strip()}"
@@ -98,10 +94,8 @@ def disable_service() -> tuple[bool, str]:
     if not has_service_unit(service_name):
         return False, f"No service named '{service_name}' to disable."
 
-    result = subprocess.run(
-        ["pkexec", "systemctl", "disable", "--now", service_name],
-        capture_output=True,
-        text=True,
+    result = systemctl_utils.run(
+        ["pkexec", "systemctl", "disable", "--now", service_name], timeout=PKEXEC_TIMEOUT_S
     )
     if result.returncode != 0:
         return False, f"Failed to disable {service_name}: {result.stderr.strip()}"
@@ -112,10 +106,8 @@ def list_all_service_units() -> list[str]:
     """All service unit names known to systemd (system-level), for the
     GUI's search-and-pick fallback.
     """
-    result = subprocess.run(
-        ["systemctl", "list-unit-files", "--type=service", "--all", "--no-legend"],
-        capture_output=True,
-        text=True,
+    result = systemctl_utils.run(
+        ["systemctl", "list-unit-files", "--type=service", "--all", "--no-legend"]
     )
     names = []
     for line in result.stdout.splitlines():
