@@ -398,6 +398,19 @@ class MainWindow(QMainWindow):
         self.notify_checkbox.toggled.connect(config.set_notifications_enabled)
         layout.addWidget(self.notify_checkbox)
 
+        close_row = QHBoxLayout()
+        close_row.addWidget(QLabel("When a game closes:"))
+        self.close_combo = QComboBox()
+        self.close_combo.addItem("Return devices to default", "revert")
+        self.close_combo.addItem("Keep the preset", "keep")
+        self.close_combo.setCurrentIndex(self.close_combo.findData(config.get_on_game_close()))
+        self.close_combo.currentIndexChanged.connect(
+            lambda i: config.set_on_game_close(self.close_combo.itemData(i))
+        )
+        close_row.addWidget(self.close_combo)
+        close_row.addStretch()
+        layout.addLayout(close_row)
+
         self.ir_status_label.setText("input-remapper: checking...")
         self.watcher_status_label.setText("Watcher service: checking...")
         for button in (

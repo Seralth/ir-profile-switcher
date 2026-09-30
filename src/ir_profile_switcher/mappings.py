@@ -27,8 +27,8 @@ def save(mappings: list[dict]) -> None:
     json_store.write_json(MAPPINGS_PATH, mappings)
 
 
-def find_targets(window_class: str, mappings: list[dict]) -> list[dict] | None:
-    """Targets of the mapping for window_class, or None if unmapped.
+def find_mapping(window_class: str, mappings: list[dict]) -> dict | None:
+    """The mapping entry for window_class, or None if unmapped.
 
     Classes match without regard to case. An exact match wins if two
     mappings differ only in case. Entries that are not a mapping at all
@@ -39,9 +39,15 @@ def find_targets(window_class: str, mappings: list[dict]) -> list[dict] | None:
     ]
     for entry in entries:
         if entry["window_class"] == window_class:
-            return entry.get("targets", [])
+            return entry
     wanted = window_class.casefold()
     for entry in entries:
         if entry["window_class"].casefold() == wanted:
-            return entry.get("targets", [])
+            return entry
     return None
+
+
+def find_targets(window_class: str, mappings: list[dict]) -> list[dict] | None:
+    """Targets of the mapping for window_class, or None if unmapped."""
+    entry = find_mapping(window_class, mappings)
+    return None if entry is None else entry.get("targets", [])

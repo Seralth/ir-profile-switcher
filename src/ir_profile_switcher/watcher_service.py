@@ -15,6 +15,16 @@ Behavior:
   input-remapper restart). A preset stopped on purpose, for example in
   input-remapper's own window, stays stopped. The health check also runs
   shortly after the system resumes.
+- The KWin script also reports every window that opens and closes. When
+  the last window of a mapped program closes and none comes back within
+  CLOSE_GRACE_MS, the program counts as closed. Then, unless the
+  on_game_close setting is "keep", the watcher stops the presets it
+  started for that program, if the devices still run them, and asks
+  input-remapper to start each device's own autoload preset. Focus
+  changes never do this.
+- Programs already open when the KWin script loads do not count as
+  newly started. A preset such a program's device already injects is
+  taken over rather than started again.
 - Mappings are re-read from disk on every notification, so GUI edits take
   effect immediately without restarting the watcher.
 """
@@ -24,7 +34,7 @@ import logging
 from PySide6.QtCore import SLOT, QObject, QTimer, Slot
 from PySide6.QtDBus import QDBusConnection
 
-from . import ir_client, mappings, notify
+from . import config, ir_client, mappings, notify
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +45,12 @@ HEALTH_CHECK_INTERVAL_MS = 30_000
 # Devices take a moment to come back after resume.
 RESUME_CHECK_DELAY_MS = 5_000
 
+# After the last window of a mapped program closes, the watcher waits this
+# long for a window of the same class to come back before it treats the
+# program as closed. Games open and close launcher, shader-compile and
+# crash-reporter windows while they start.
+CLOSE_GRACE_MS = 10_000
+
 # get_state values (input-remapper's InjectorState) that mean the device
 # is injecting. STARTING is included so a check right after a switch does
 # not restart an injection that is still starting up.
@@ -43,6 +59,11 @@ INJECTING_STATES = ("RUNNING", "STARTING")
 # asking: the injector died, the daemon restarted, or the device grab was
 # lost. "STOPPED" is not one of them: someone stopped the preset on purpose.
 DROPOUT_STATES = ("FAILED", "UNKNOWN", "NO_GRAB")
+
+
+def class_key(window_class: str) -> str:
+    """Window classes match without regard to case."""
+    return window_class.casefold()
 
 
 def valid_targets(window_class: str, targets) -> list[tuple[str, str]]:
@@ -75,15 +96,135 @@ class WatcherService(QObject):
         # get_state only says whether a device is injecting, not which
         # preset, so this record fills that gap.
         self._started: dict[str, str] = {}
+        # device -> class key of the mapping that preset was started for.
+        self._started_for: dict[str, str] = {}
+        # KWin window id -> window class, for every open window.
+        self._windows: dict[str, str] = {}
+        # class key -> timer that ends the grace period after the class's
+        # last window closed.
+        self._close_timers: dict[str, QTimer] = {}
+        # Class keys that were already open when the KWin script loaded
+        # and have not been focused since. Their running presets are taken
+        # over instead of started again.
+        self._already_open: set[str] = set()
 
         self._health_timer = QTimer(self)
         self._health_timer.setInterval(HEALTH_CHECK_INTERVAL_MS)
         self._health_timer.timeout.connect(self.check_health)
 
-    @Slot(str)
-    def NotifyWindow(self, window_class: str):
+    @Slot(str, str)
+    def NotifyWindow(self, window_class: str, caption: str):
+        """A window was focused."""
+        self._focus(window_class)
+
+    @Slot(str, str, str, bool)
+    def WindowAdded(self, window_id: str, window_class: str, caption: str, active: bool):
+        key = class_key(window_class)
+        first = not self._is_open(key) and key not in self._close_timers
+        self._windows[window_id] = window_class
+        self._cancel_close(key)
+        if active:
+            self._focus(window_class)
+        if first:
+            logger.debug("First window of %s opened", window_class)
+
+    @Slot(str, str)
+    def WindowRemoved(self, window_id: str, window_class: str):
+        window_class = self._windows.pop(window_id, None)
+        if window_class is None:
+            return
+        key = class_key(window_class)
+        if not self._is_open(key) and key not in self._close_timers:
+            self._start_close(window_class)
+
+    @Slot(list, list, list)
+    def OpenWindows(self, window_ids, window_classes, captions):
+        """The windows open when the KWin script loaded: at watcher start,
+        and again after KWin restarts."""
+        old_keys = {class_key(c): c for c in self._windows.values()}
+        self._windows = {str(i): str(c) for i, c in zip(window_ids, window_classes)}
+        new_keys = {class_key(c) for c in self._windows.values()}
+        for key in new_keys:
+            self._cancel_close(key)
+            if key not in old_keys:
+                self._already_open.add(key)
+        for key, window_class in old_keys.items():
+            if key not in new_keys and key not in self._close_timers:
+                self._start_close(window_class)
+
+    def _is_open(self, key: str) -> bool:
+        return any(class_key(c) == key for c in self._windows.values())
+
+    def _start_close(self, window_class: str) -> None:
+        """Start the grace period after the last window of a class closed."""
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(CLOSE_GRACE_MS)
+        timer.timeout.connect(lambda: self._closed(window_class))
+        self._close_timers[class_key(window_class)] = timer
+        timer.start()
+
+    def _cancel_close(self, key: str) -> None:
+        timer = self._close_timers.pop(key, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+
+    def _closed(self, window_class: str) -> None:
+        """No window of the class came back within the grace period."""
+        key = class_key(window_class)
+        self._cancel_close(key)
+        self._already_open.discard(key)
+        if self._is_open(key):
+            return
+        try:
+            entry = mappings.find_mapping(window_class, mappings.load())
+        except (OSError, ValueError, TypeError):
+            logger.exception("Could not read mappings for %s", window_class)
+            return
+        if entry is None:
+            return
+        logger.info("%s closed", window_class)
+        if config.get_on_game_close() == "revert":
+            self._revert(window_class)
+
+    def _revert(self, window_class: str) -> None:
+        """Stop the presets this watcher started for the class's mapping,
+        if the devices still run them, and start each device's own
+        autoload preset, if it has one."""
+        key = class_key(window_class)
+        reverted = []
+        for device in [d for d, k in self._started_for.items() if k == key]:
+            del self._started_for[device]
+            preset = self._started.pop(device, None)
+            state = self._state(device)
+            if state not in INJECTING_STATES:
+                continue
+            try:
+                ir_client.stop_injecting(device)
+            except RuntimeError as e:
+                logger.error("Could not stop preset=%r on device=%r: %s", preset, device, e)
+                continue
+            logger.info("%s closed -> stopped preset=%r on device=%r", window_class, preset, device)
+            reverted.append(device)
+            try:
+                ir_client.autoload_single(device)
+            except RuntimeError as e:
+                logger.warning("Could not start the autoload preset for %r: %s", device, e)
+        if self._focused_mapped_class and class_key(self._focused_mapped_class) == key:
+            self._focused_mapped_class = None
+            self._health_timer.stop()
+        if self._active_window_class and class_key(self._active_window_class) == key:
+            self._active_window_class = None
+        if reverted:
+            notify.notify_game_closed(window_class, reverted)
+
+    def _focus(self, window_class: str):
         if window_class == self._active_window_class:
             return
+        key = class_key(window_class)
+        take_over = key in self._already_open
+        self._already_open.discard(key)
 
         try:
             targets = mappings.find_targets(window_class, mappings.load())
@@ -101,7 +242,7 @@ class WatcherService(QObject):
 
         self._focused_mapped_class = window_class
         self._health_timer.start()
-        if self._apply(window_class, targets, health_check=False):
+        if self._apply(window_class, targets, health_check=False, take_over=take_over):
             self._active_window_class = window_class
         else:
             self._active_window_class = None
@@ -138,14 +279,20 @@ class WatcherService(QObject):
             logger.debug("get_state failed for %r: %s", device, e)
             return "unreachable"
 
-    def _apply(self, window_class: str, targets, *, health_check: bool) -> bool:
+    def _apply(
+        self, window_class: str, targets, *, health_check: bool, take_over: bool = False
+    ) -> bool:
         """Switch every valid target that is not already running. Returns
         True when every valid target is running afterwards.
 
         The health check only re-applies a preset this watcher started
         when input-remapper lost it (DROPOUT_STATES). A preset someone
         stopped on purpose stays stopped. A target whose switch failed is
-        always tried again."""
+        always tried again.
+
+        With take_over, a device that already injects and has no preset
+        from this watcher yet is counted as running the mapped preset. That
+        is for programs that were open before the watcher started."""
         all_ok = True
         switched = []
         for device, preset in valid_targets(window_class, targets):
@@ -154,6 +301,16 @@ class WatcherService(QObject):
             if ours and health_check and state not in DROPOUT_STATES:
                 continue
             if ours and not health_check and state in INJECTING_STATES:
+                continue
+            if take_over and device not in self._started and state in INJECTING_STATES:
+                logger.info(
+                    "%s: device=%r already injecting, taking it over as preset=%r",
+                    window_class,
+                    device,
+                    preset,
+                )
+                self._started[device] = preset
+                self._started_for[device] = class_key(window_class)
                 continue
             if health_check:
                 logger.warning(
@@ -174,9 +331,11 @@ class WatcherService(QObject):
             )
             if ok:
                 self._started[device] = preset
+                self._started_for[device] = class_key(window_class)
                 switched.append({"device": device, "preset": preset})
             else:
                 self._started.pop(device, None)
+                self._started_for.pop(device, None)
                 all_ok = False
                 notify.notify_failure(device, preset, reason)
         if switched and not health_check:

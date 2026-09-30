@@ -1,4 +1,5 @@
-"""Desktop notifications from the watcher: preset switches and failures.
+"""Desktop notifications from the watcher: preset switches, games
+closing, and failures.
 
 Uses notify-send rather than a raw org.freedesktop.Notifications DBus call:
 that interface's replaces_id/expire_timeout arguments are UINT32/INT32,
@@ -56,6 +57,21 @@ def notify_switch(window_class: str, targets: list[dict]) -> None:
         return
     body = ", ".join(f"{t['device']} → {t['preset']}" for t in targets)
     _send(f"Switched preset for {window_class}", body)
+
+
+def short_device_name(device: str) -> str:
+    """Drop a repeated first word, as in "Razer Razer DeathAdder V3 Pro"."""
+    words = device.split(" ")
+    if len(words) > 1 and words[0] == words[1]:
+        words = words[1:]
+    return " ".join(words)
+
+
+def notify_game_closed(name: str, devices: list[str]) -> None:
+    if not config.get_notifications_enabled():
+        return
+    names = ", ".join(short_device_name(d) for d in devices)
+    _send(f"{name} closed — {names} back to default", "")
 
 
 def notify_failure(device: str, preset: str, reason: str) -> None:

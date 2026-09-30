@@ -37,6 +37,20 @@ own. This adds that on top, without depending on X11-only tools (like
   stop on purpose, for example in input-remapper's own window, stays
   stopped until the next switch.
 - A failed switch is retried on the next focus and on the next check.
+- When a mapped program closes, its devices go back to default. The
+  watcher stops the presets it started for that program, and
+  input-remapper starts the device's own autoload preset if you set one.
+  A device that runs a preset another program or you started since is
+  left alone. Switching to another window never does this.
+- A program counts as closed when its last window is gone and no new
+  window of it opens within 10 seconds. Games open and close launcher
+  and shader windows while they start, so a short gap does not count.
+- To keep the game's preset after it closes, set "When a game closes"
+  in the GUI to "Keep the preset". This is saved as `on_game_close`
+  (`"revert"` or `"keep"`) in `~/.config/ir-profile-switcher/config.json`.
+- Programs that were already open when the watcher started still count
+  as open. When such a program is focused and its device already runs a
+  preset, the watcher keeps that preset running instead of restarting it.
 
 ## Requirements
 
@@ -88,6 +102,9 @@ install, or uninstall.
 
 - A switch shows a short notification. The GUI has a checkbox to turn
   switch notifications off.
+- When a game closes and its devices go back to default, a notification
+  says so, for example "Deadlock closed — Razer Tartarus Pro back to
+  default". The same checkbox turns it off.
 - A failed switch always shows a notification, at most once per device
   every 5 minutes.
 - The watcher never asks for a password. When input-remapper's service

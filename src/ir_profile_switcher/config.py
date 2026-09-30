@@ -1,7 +1,10 @@
-"""App-level config -- currently just which systemd service name to treat
-as "input-remapper's service." Defaults to the known name, but can be
-manually repointed via the GUI's service picker if it's ever renamed or
-installed differently than expected.
+"""App-level config: which systemd service name to treat as
+"input-remapper's service", whether switches show a notification, and
+what happens when a game closes.
+
+The service name defaults to the known name, but can be manually
+repointed via the GUI's service picker if it's ever renamed or installed
+differently than expected.
 """
 
 from pathlib import Path
@@ -10,6 +13,9 @@ from . import json_store
 
 CONFIG_PATH = Path.home() / ".config" / "ir-profile-switcher" / "config.json"
 DEFAULT_INPUT_REMAPPER_SERVICE = "input-remapper.service"
+# on_game_close values: "revert" returns the game's devices to default,
+# "keep" leaves the game's preset running.
+ON_GAME_CLOSE_CHOICES = ("revert", "keep")
 
 
 def _load() -> dict:
@@ -37,4 +43,15 @@ def get_notifications_enabled() -> bool:
 def set_notifications_enabled(enabled: bool) -> None:
     data = _load()
     data["notifications_enabled"] = enabled
+    _save(data)
+
+
+def get_on_game_close() -> str:
+    value = _load().get("on_game_close", "revert")
+    return value if value in ON_GAME_CLOSE_CHOICES else "revert"
+
+
+def set_on_game_close(value: str) -> None:
+    data = _load()
+    data["on_game_close"] = value
     _save(data)
