@@ -7,12 +7,16 @@ Schema:
     "name": "Deadlock",
     "targets": [
       {"device": "Razer Razer DeathAdder V3 Pro", "preset": "Deadlock"}
-    ]
+    ],
+    "on_start": "",
+    "on_exit": ""
   },
   ...
 ]
 
 "name" is optional. It is the window caption picked in the GUI.
+"on_start" and "on_exit" are optional shell commands that run when the
+program's first window opens and when the program closes.
 """
 
 from pathlib import Path

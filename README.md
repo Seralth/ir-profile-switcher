@@ -49,6 +49,17 @@ own. This adds that on top, without depending on X11-only tools (like
 - To keep the game's preset after it closes, set "When a game closes"
   in the GUI to "Keep the preset". This is saved as `on_game_close`
   (`"revert"` or `"keep"`) in `~/.config/ir-profile-switcher/config.json`.
+- Each mapping can run a command when the game starts and when it
+  exits. Set them in the mapping dialog under "Run when the game starts"
+  and "Run when the game exits". They are saved as `on_start` and
+  `on_exit` in `mappings.json`. The start command runs when the game's
+  first window opens. The exit command runs when the game closes, as
+  above, with either close setting. Switching windows never runs them.
+- The commands run with `/bin/sh -c` in your home folder. The watcher
+  does not wait for them. A command that still runs after 60 seconds is
+  stopped. To start a program that should keep running, use
+  `setsid -f program`. A command that fails shows a notification, at
+  most once every 5 minutes.
 - Programs that were already open when the watcher started still count
   as open. When such a program is focused and its device already runs a
   preset, the watcher keeps that preset running instead of restarting it.

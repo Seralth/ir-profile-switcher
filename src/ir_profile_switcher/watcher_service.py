@@ -22,6 +22,9 @@ Behavior:
   started for that program, if the devices still run them, and asks
   input-remapper to start each device's own autoload preset. Focus
   changes never do this.
+- A mapping's on_start command runs when the first window of its
+  program opens. Its on_exit command runs when the program closes, as
+  above, whatever on_game_close says.
 - Programs already open when the KWin script loads do not count as
   newly started. A preset such a program's device already injects is
   taken over rather than started again.
@@ -34,7 +37,7 @@ import logging
 from PySide6.QtCore import SLOT, QObject, QTimer, Slot
 from PySide6.QtDBus import QDBusConnection
 
-from . import config, ir_client, mappings, notify
+from . import actions, config, ir_client, mappings, notify
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +134,7 @@ class WatcherService(QObject):
         if active:
             self._focus(window_class)
         if first:
-            logger.debug("First window of %s opened", window_class)
+            self._started_program(window_class)
 
     @Slot(str, str)
     def WindowRemoved(self, window_id: str, window_class: str):
@@ -195,6 +198,21 @@ class WatcherService(QObject):
             timer.stop()
             timer.deleteLater()
 
+    def _started_program(self, window_class: str) -> None:
+        """The first window of a class opened."""
+        try:
+            entry = mappings.find_mapping(window_class, mappings.load())
+        except (OSError, ValueError, TypeError):
+            logger.exception("Could not read mappings for %s", window_class)
+            return
+        if entry is not None:
+            self._run_command(window_class, entry, "on_start", "start")
+
+    def _run_command(self, window_class: str, entry: dict, field: str, when: str) -> None:
+        command = entry.get(field)
+        if isinstance(command, str) and command.strip():
+            actions.run(command, self._name(window_class, entry), when)
+
     def _closed(self, window_class: str) -> None:
         """No window of the class came back within the grace period."""
         key = class_key(window_class)
@@ -208,12 +226,14 @@ class WatcherService(QObject):
             logger.exception("Could not read mappings for %s", window_class)
             entry = None
         name = self._name(window_class, entry) if entry is not None else window_class
-        self._captions.pop(key, None)
         if entry is None:
+            self._captions.pop(key, None)
             return
         logger.info("%s (%s) closed", window_class, name)
         if config.get_on_game_close() == "revert":
             self._revert(window_class, name)
+        self._run_command(window_class, entry, "on_exit", "exit")
+        self._captions.pop(key, None)
 
     def _revert(self, window_class: str, name: str) -> None:
         """Stop the presets this watcher started for the class's mapping,

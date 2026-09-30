@@ -23,10 +23,21 @@ logger = logging.getLogger(__name__)
 
 APP_NAME = "Input Remapper Profile Switcher"
 
-# Failure notices per device are sent at most this often.
+# Failure notices per device or command are sent at most this often.
 FAILURE_INTERVAL_S = 5 * 60
 
 _last_failure_notice: dict[str, float] = {}
+
+
+def _rate_limited(last_sent: dict[str, float], key: str, interval_s: float) -> bool:
+    """True if key was sent less than interval_s ago. Otherwise records
+    now as the time key was sent."""
+    now = time.monotonic()
+    last = last_sent.get(key)
+    if last is not None and now - last < interval_s:
+        return True
+    last_sent[key] = now
+    return False
 
 
 def _send(summary: str, body: str, *, urgency: str = "normal", expire_ms: int = 4000) -> None:
@@ -78,16 +89,22 @@ def notify_failure(device: str, preset: str, reason: str) -> None:
     """Tell the user a preset could not be applied. Sent even when switch
     notifications are turned off, and at most once per device every
     FAILURE_INTERVAL_S."""
-    now = time.monotonic()
-    last = _last_failure_notice.get(device)
-    if last is not None and now - last < FAILURE_INTERVAL_S:
+    if _rate_limited(_last_failure_notice, device, FAILURE_INTERVAL_S):
         return
-    _last_failure_notice[device] = now
     _send(
         f"Could not switch {device} to {preset}",
         reason,
         expire_ms=10000,
     )
+
+
+def notify_action_failed(program: str, when: str, reason: str) -> None:
+    """A mapping's start or exit command failed. Sent even when switch
+    notifications are turned off, and at most once per program and
+    command every FAILURE_INTERVAL_S."""
+    if _rate_limited(_last_failure_notice, f"{when} command of {program}", FAILURE_INTERVAL_S):
+        return
+    _send(f"The {when} command for {program} failed", reason, expire_ms=10000)
 
 
 def notify_problem(summary: str, body: str) -> None:

@@ -147,7 +147,7 @@ class AddMappingDialog(QDialog):
     def __init__(self, parent=None, existing: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle("Add mapping" if existing is None else "Edit mapping")
-        self.resize(560, 420)
+        self.resize(560, 560)
         self._devices = ir_client.list_devices()
         self._targets: list[dict] = []
         # Counts, not a set: several windows (e.g. multiple browser windows)
@@ -210,6 +210,19 @@ class AddMappingDialog(QDialog):
             add_row.addWidget(add_device_button)
             layout.addLayout(add_row)
 
+        layout.addWidget(QLabel("Run when the game starts:"))
+        self.on_start_edit = QLineEdit()
+        layout.addWidget(self.on_start_edit)
+        layout.addWidget(QLabel("Run when the game exits:"))
+        self.on_exit_edit = QLineEdit()
+        layout.addWidget(self.on_exit_edit)
+        hint = QLabel(
+            "Optional shell commands. They run in your home folder and are "
+            "stopped after 60 seconds. Leave empty to run nothing."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -228,6 +241,8 @@ class AddMappingDialog(QDialog):
         if existing is not None:
             self.window_combo.setEditText(existing["window_class"])
             self.name_edit.setText(existing.get("name", ""))
+            self.on_start_edit.setText(existing.get("on_start", ""))
+            self.on_exit_edit.setText(existing.get("on_exit", ""))
             for target in existing["targets"]:
                 self._targets.append(target)
             self._refresh_targets_table()
@@ -350,6 +365,10 @@ class AddMappingDialog(QDialog):
         name = self.name_edit.text().strip()
         if name:
             self.result_mapping["name"] = name
+        for field, edit in (("on_start", self.on_start_edit), ("on_exit", self.on_exit_edit)):
+            command = edit.text().strip()
+            if command:
+                self.result_mapping[field] = command
         self.accept()
 
 
