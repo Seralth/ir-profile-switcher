@@ -1,7 +1,8 @@
-"""Writes the launcher entry and the watcher's systemd --user unit.
+"""Writes the launcher entry and the watcher's systemd --user units.
 
-Both point at wherever this checkout lives, so they are generated here
-rather than shipped with a fixed path.
+The launcher entry and the watcher unit point at wherever this checkout
+lives, so they are generated here rather than shipped with a fixed path.
+A second unit sends a notification when the watcher fails for good.
 """
 
 import shlex
@@ -13,7 +14,10 @@ from pathlib import Path
 from . import paths
 
 SERVICE_NAME = "ir-profile-switcher.service"
-UNIT_PATH = Path.home() / ".config" / "systemd" / "user" / SERVICE_NAME
+FAILED_SERVICE_NAME = "ir-profile-switcher-failed.service"
+UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
+UNIT_PATH = UNIT_DIR / SERVICE_NAME
+FAILED_UNIT_PATH = UNIT_DIR / FAILED_SERVICE_NAME
 DESKTOP_PATH = Path.home() / ".local" / "share" / "applications" / "ir-profile-switcher.desktop"
 MAIN_PATH = paths.REPO_ROOT / "src" / "main.py"
 
@@ -46,6 +50,8 @@ After=graphical-session.target
 PartOf=graphical-session.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
+# Runs once the restarts below give up, not on each restart.
+OnFailure={FAILED_SERVICE_NAME}
 
 [Service]
 Type=simple
@@ -55,6 +61,16 @@ RestartSec=10
 
 [Install]
 WantedBy=graphical-session.target
+"""
+
+
+def failed_unit_text() -> str:
+    return """[Unit]
+Description=Input Remapper Profile Switcher failure notice
+
+[Service]
+Type=oneshot
+ExecStart=notify-send -u critical -a "Profile Switcher" "Profile switcher stopped" "The watcher failed and is not running. Open Profile Switcher to restart it."
 """
 
 
@@ -83,7 +99,9 @@ def _write(path: Path, text: str) -> bool:
 
 
 def install_unit() -> None:
-    if _write(UNIT_PATH, unit_text()):
+    changed = _write(FAILED_UNIT_PATH, failed_unit_text())
+    changed = _write(UNIT_PATH, unit_text()) or changed
+    if changed:
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
 
@@ -103,7 +121,7 @@ def install() -> None:
 
 def uninstall() -> None:
     subprocess.run(["systemctl", "--user", "disable", "--now", SERVICE_NAME], capture_output=True)
-    for path in (UNIT_PATH, DESKTOP_PATH):
+    for path in (UNIT_PATH, FAILED_UNIT_PATH, DESKTOP_PATH):
         if path.is_symlink() or path.exists():
             path.unlink()
     subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
