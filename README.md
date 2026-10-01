@@ -25,6 +25,10 @@ own. This adds that on top, without depending on X11-only tools (like
   changes.
 - One program mapping can drive multiple devices at once (e.g. mouse +
   keyboard + keypad switching together).
+- A device connected twice, like a wireless mouse plugged in by cable to
+  charge while its dongle stays in, shows up in input-remapper as "name"
+  and "name 2". The mapping applies the preset to both, and the health
+  check picks up the second one when the cable goes in.
 - Focusing an unmapped window leaves the current preset active — it only
   changes when a different mapped program is focused. A program that
   opens in the background does not switch the preset.

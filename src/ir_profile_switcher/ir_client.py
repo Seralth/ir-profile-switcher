@@ -36,6 +36,57 @@ def list_presets(device: str) -> list[str]:
     return sorted(p.stem for p in device_dir.glob("*.json"))
 
 
+SYS_INPUT_DIR = Path("/sys/class/input")
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+
+def connected_group_keys(device: str) -> list[str]:
+    """input-remapper's group keys for every connected hardware device
+    whose group is named `device`.
+
+    input-remapper names a group after its shortest device name. When
+    several connected devices share that name, the keys are "name",
+    "name 2", "name 3", and so on. The same mouse plugged in by cable
+    while its wireless dongle is also connected shows up twice. Both
+    groups load presets from the folder named `device`.
+
+    input-remapper has no DBus method that lists groups, so this repeats
+    its grouping from sysfs: same unique key (bus, vendor, product, uniq,
+    first part of phys), skipping its own forwarded devices and devices
+    with no buttons or axes. Returns [device] when nothing matches, so a
+    disconnected device still reports a failure as before.
+    """
+    groups: dict[str, list[str]] = {}
+    for node in SYS_INPUT_DIR.glob("input*"):
+        name = _read(node / "name")
+        phys = _read(node / "phys")
+        if not name or name.startswith("input-remapper") or phys.startswith("input-remapper"):
+            continue
+        caps = [_read(node / "capabilities" / c) for c in ("key", "rel", "abs")]
+        if all(c in ("", "0") for c in caps):
+            continue
+        key = "_".join(
+            [
+                _read(node / "id" / "bustype"),
+                _read(node / "id" / "vendor"),
+                _read(node / "id" / "product"),
+                _read(node / "uniq"),
+                phys.split("/")[0] or "-",
+            ]
+        )
+        groups.setdefault(key, []).append(name)
+    count = sum(1 for names in groups.values() if min(names, key=len) == device)
+    if count == 0:
+        return [device]
+    return [device] + [f"{device} {i}" for i in range(2, count + 1)]
+
+
 def _system_bus_call(method: str, args: list):
     bus = QDBusConnection.systemBus()
     return dbus_utils.call(bus, SERVICE, OBJECT_PATH, INTERFACE, method, args)

@@ -10,6 +10,9 @@ Behavior:
   briefly interrupts the device.
 - A window only counts as handled after every target switched. Focusing
   the same window again retries a failed switch.
+- A target applies to every connected group of its device. input-remapper
+  shows the same device connected twice (a mouse by cable and by its
+  wireless dongle) as "name" and "name 2"; both get the preset.
 - While a mapped window is focused, a health check runs every 30 s and
   re-applies any preset input-remapper lost (device reconnect,
   input-remapper restart). A preset stopped on purpose, for example in
@@ -343,7 +346,14 @@ class WatcherService(QObject):
         all_ok = True
         switched = []
         reapplied = []
-        for device, preset in valid_targets(window_class, entry.get("targets")):
+        # A target applies to every connected group of its device, for
+        # example the same mouse by cable and by wireless dongle.
+        expanded = [
+            (group, preset)
+            for device, preset in valid_targets(window_class, entry.get("targets"))
+            for group in ir_client.connected_group_keys(device)
+        ]
+        for device, preset in expanded:
             state = self._state(device)
             ours = self._started.get(device) == preset
             if ours and health_check and state not in DROPOUT_STATES:
